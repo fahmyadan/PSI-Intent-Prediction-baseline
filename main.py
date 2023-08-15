@@ -2,6 +2,7 @@ from opts import get_opts
 from datetime import datetime
 import os
 import json
+from pathlib import Path
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from data.prepare_data import get_dataloader
@@ -31,8 +32,10 @@ def main(args):
     # ''' 3. Train '''
     train_intent(model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer)
 
-    val_gt_file = './test_gt/val_intent_gt.json'
+    val_gt_file = str(Path(__file__).parents[0]) + '/test_gt/val_intent_gt.json'
+    test_gt_path = str(Path(__file__).parents[0]) + '/test_gt'
     if not os.path.exists(val_gt_file):
+        os.makedirs(test_gt_path)
         get_intent_gt(val_loader, val_gt_file, args)
     predict_intent(model, val_loader, args, dset='val')
     evaluate_intent(val_gt_file, args.checkpoint_path + '/results/val_intent_pred.json', args)
@@ -47,7 +50,8 @@ def main(args):
 if __name__ == '__main__':
     # /home/scott/Work/Toyota/PSI_Competition/Dataset
     args = get_opts()
-    args.dataset_root_path = '/home/scott/Work/Toyota/PSI_Competition/Dataset'
+    args.dataset_root_path = str(Path(__file__).parents[1])  +'/dataset'
+    args.database_path = str(Path(__file__).parents[0]) + '/database'
     # Dataset
     args.dataset = 'PSI2.0'
     if args.dataset == 'PSI2.0':
