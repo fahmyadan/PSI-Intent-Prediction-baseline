@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pathlib
 
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
-
+from ..backbones.backbone_base import Backbone
 
 class LSTMIntBbox(nn.Module):
     def __init__(self, args, model_configs):
@@ -16,7 +17,8 @@ class LSTMIntBbox(nn.Module):
         self.observe_length = self.args.observe_length
         self.predict_length = self.args.predict_length
 
-        self.backbone = args.backbone
+        # self.backbone = args.backbone
+        self.backbone = Backbone('resnet50', train_backbone=True)
         self.intent_predictor = LSTMInt(self.args, self.model_configs['intent_model_opts'])
         # intent predictor, always output (bs x 1) intention logits
         self.traj_predictor = None
@@ -37,6 +39,7 @@ class LSTMIntBbox(nn.Module):
 
         # 1. backbone feature (to be implemented for images)
         if self.backbone is not None:
+            
             pass
 
         # 2. intent prediction
