@@ -42,10 +42,10 @@ class VideoDataset(torch.utils.data.Dataset):
         assert len(bboxes) == self.args.max_track_size # following bboxes are used to calculate trajectory
         assert len(frame_list) == self.args.observe_length # only 15 frames is necessary
 
-        # if self.args.load_image:
-        #     images, cropped_images = self.load_images(video_id, frame_list, bboxes)
-        # else:
-        #     images, cropped_images = [], []
+        if self.args.load_image:
+            images, cropped_images = self.load_images(video_ids, frame_list, bboxes)
+        else:
+            images, cropped_images = [], []
 
         global_featmaps, local_featmaps = self.load_features(video_ids, ped_ids, frame_list)
         reason_features = self.load_reason_features(video_ids, ped_ids, frame_list)
@@ -69,7 +69,7 @@ class VideoDataset(torch.utils.data.Dataset):
 
         data = {
             # 'cropped_images': cropped_images,
-            # 'images': images,
+            'images': images,
             'local_featmaps': local_featmaps,
             'global_featmaps': global_featmaps,
             'bboxes': bboxes,
@@ -145,7 +145,7 @@ class VideoDataset(torch.utils.data.Dataset):
             bbox = bboxes[i]
             # load original image
             # print(video_id, frame_list, video_name, frame_id, bbox)
-            img_path = os.path.join(self.images_path, video_name, str(frame_id).zfill(5)+'.png')
+            img_path = os.path.join(self.images_path, video_name, str(frame_id).zfill(3)+'.jpg')
             # print(img_path)
             img = self.rgb_loader(img_path)
             print(img.shape)# 2048 x 2048 x 3 --> 1280 x 720
@@ -186,7 +186,9 @@ class VideoDataset(torch.utils.data.Dataset):
 
 
     def rgb_loader(self, img_path):
+        assert os.path.exists(img_path), f'Image path {img_path} does not exist!'
         img = cv2.imread(img_path)
+        assert img is not None, f'Unable to load the image from path: {img_path}'
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         return img
 
