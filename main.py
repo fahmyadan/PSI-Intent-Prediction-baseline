@@ -13,6 +13,7 @@ from test import validate_intent, test_intent, predict_intent
 from utils.log import RecordResults
 from utils.evaluate_results import evaluate_intent
 from utils.get_test_intent_gt import get_intent_gt
+import logging
 
 
 def main(args):
@@ -99,10 +100,10 @@ if __name__ == '__main__':
 
     # Model
     args.model_name = 'lstm_int_bbox'  # LSTM module, with bboxes sequence as input, to predict intent
-    args.load_image = False # only bbox sequence as input
+    args.load_image = True # only bbox sequence as input
     if args.load_image:
-        args.backbone = 'resnet'
-        args.freeze_backbone = False
+        logging.info('Loading Imgs to Backbone')
+
     else:
         args.backbone = None
         args.freeze_backbone = False
