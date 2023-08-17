@@ -18,9 +18,10 @@ class LSTMIntBbox(nn.Module):
         self.predict_length = self.args.predict_length
 
         # self.backbone = args.backbone
-        self.backbone = Backbone('resnet50', train_backbone=True)
-        self.intent_predictor = LSTMInt(self.args, self.model_configs['intent_model_opts'])
+        self.backbone = Backbone('resnet34', train_backbone=True)
+        # self.intent_predictor = LSTMInt(self.args, self.model_configs['intent_model_opts'])
         # intent predictor, always output (bs x 1) intention logits
+        self.intent_predictor = GRUInt(self.args, self.model_configs['intent_model_opts'])
         self.traj_predictor = None
 
         self.module_list = self.intent_predictor.module_list
@@ -39,11 +40,17 @@ class LSTMIntBbox(nn.Module):
 
         # 1. backbone feature (to be implemented for images)
         if self.backbone is not None:
-            
-            pass
+            #Image Data shape: 128,15,3,224,224 | N-videos/batch size, frames, channels, height, width
+            img_in = torch.flatten(data['cropped_images'], start_dim=0, end_dim=1) # N-v
+            # img_in = data['images']
+            img_feat_maps = self.backbone(img_in)
+
+        # Feature map concat
+        new_feat_maps = FeatureConcatenator()(img_feat_maps.values())
+        flat_feat_map  = torch.flatten(new_feat_maps, start_dim=0, end_dim=1)
 
         # 2. intent prediction
-        intent_pred = self.intent_predictor(bbox, dec_input_emb)
+        intent_pred = self.intent_predictor(flat_feat_map, dec_input_emb)
         # output shape: bs x int_pred_len=1 x int_dim=1
 
         return intent_pred.squeeze()
@@ -163,3 +170,77 @@ class LSTMInt(nn.Module):
         # Original Transformer initialization, see PyTorch documentation
         nn.init.xavier_uniform_(self.fc.weight)
         self.fc.bias.data.fill_(0)
+
+class GRUInt(nn.Module):
+    def __init__(self, args, model_opts):
+        super(GRUInt, self).__init__()
+
+        enc_in_dim = model_opts['enc_in_dim']
+        enc_out_dim = model_opts['enc_out_dim']
+        output_dim = model_opts['output_dim']
+        n_layers = model_opts['n_layers']
+        dropout = model_opts['dropout']
+
+        self.args = args
+
+        self.enc_in_dim = enc_in_dim  # input bbox+convlstm_output context vector
+        self.enc_out_dim = enc_out_dim
+
+        self.temp_encoder = nn.GRU(
+            input_size=self.enc_in_dim,
+            hidden_size=self.enc_out_dim,
+            num_layers=n_layers,
+            batch_first=True,
+            bias=True
+        )
+
+        self.output_dim = output_dim  # 2/3: intention; 62 for reason; 1 for trust score; 4 for trajectory.
+
+        self.fc = nn.Sequential(
+            nn.Linear(self.enc_out_dim, 16),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(16, self.output_dim)
+
+        )
+
+        if model_opts['output_activation'] == 'tanh':
+            self.activation = nn.Tanh()
+        elif model_opts['output_activation'] == 'sigmoid':
+            self.activation = nn.Sigmoid()
+        else:
+            self.activation = nn.Identity()
+
+        self.module_list = [self.temp_encoder, self.fc] #, self.fc_emb, self.decoder
+        # self._reset_parameters()
+        # assert self.enc_out_dim == self.dec_out_dim
+
+    def forward(self, enc_input, dec_input_emb=None):
+        enc_output, enc_hidden_state = self.temp_encoder(enc_input)
+
+        #TODO: Fix the output 
+
+        enc_last_output = enc_output[:, -1:, :]  # bs x 1 x hidden_dim
+        output = self.fc(enc_last_output)
+        outputs = output.unsqueeze(1) # bs x 1 --> bs x 1 x 1
+        return outputs  # shape: bs x predict_length x output_dim, no activation
+
+
+    def _reset_parameters(self):
+        # Original Transformer initialization, see PyTorch documentation
+        nn.init.xavier_uniform_(self.fc.weight)
+        self.fc.bias.data.fill_(0)
+
+
+class FeatureConcatenator(nn.Module):
+    def __init__(self):
+        super(FeatureConcatenator, self).__init__()
+
+    def forward(self, feature_maps):
+        # Reshape feature maps to a common spatial dimension
+        resized_maps = [nn.functional.adaptive_avg_pool2d(fm, (7, 7)) for fm in feature_maps]
+
+        # Concatenate along the channel dimension
+        concatenated_features = torch.cat(resized_maps, dim=1)
+
+        return concatenated_features
