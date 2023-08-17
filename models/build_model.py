@@ -20,7 +20,7 @@ def build_model(args):
 def get_lstm_intent_bbox(args):
     model_configs = {}
     model_configs['intent_model_opts'] = {
-        'enc_in_dim': 4,  # input bbox (normalized OR not) + img_context_feat_dim
+        'enc_in_dim': 7,  # input bbox (normalized OR not) + img_context_feat_dim
         'enc_out_dim': 64,
         'dec_in_emb_dim': None,  # encoder output + bbox
         'dec_out_dim': 64,
