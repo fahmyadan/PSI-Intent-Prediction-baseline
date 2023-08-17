@@ -117,13 +117,16 @@ class BackboneBase(nn.Module):
         self.num_channels = num_channels
 
     def forward(self, tensor_list: NestedTensor):
-        xs = self.body(tensor_list.tensors)
-        out: Dict[str, NestedTensor] = {}
+        # xs = self.body(tensor_list.tensors)
+        xs = self.body(tensor_list)
+        # out: Dict[str, NestedTensor] = {}
+        out: Dict[str, Tensor] = {}
         for name, x in xs.items():
-            m = tensor_list.mask
-            assert m is not None
-            mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
-            out[name] = NestedTensor(x, mask)
+            # m = tensor_list.mask
+            # assert m is not None
+            # mask = F.interpolate(m[None].float(), size=x.shape[-2:]).to(torch.bool)[0]
+            # out[name] = NestedTensor(x, mask)
+            out[name] = x
         return out
 
 
