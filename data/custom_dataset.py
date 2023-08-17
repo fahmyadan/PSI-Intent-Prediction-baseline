@@ -68,7 +68,7 @@ class VideoDataset(torch.utils.data.Dataset):
 
 
         data = {
-            # 'cropped_images': cropped_images,
+            'cropped_images': cropped_images,
             'images': images,
             'local_featmaps': local_featmaps,
             'global_featmaps': global_featmaps,
@@ -148,13 +148,13 @@ class VideoDataset(torch.utils.data.Dataset):
             img_path = os.path.join(self.images_path, video_name, str(frame_id).zfill(3)+'.jpg')
             # print(img_path)
             img = self.rgb_loader(img_path)
-            print(img.shape)# 2048 x 2048 x 3 --> 1280 x 720
+            # print(img.shape)# 2048 x 2048 x 3 --> 1280 x 720
             # print("Original image size: ", img.shape, bbox)
             # Image.fromarray(img).show()
             # img.shape: H x W x C, RGB channel
             # crop pedestrian surrounding image
             ori_bbox = copy.deepcopy(bbox)
-
+ 
             bbox = self.jitter_bbox(img, [bbox], self.args.crop_mode, 2.0)[0]
 
             # x1, y1, x2, y2 = bbox
