@@ -111,7 +111,7 @@ if __name__ == '__main__':
 
     # Train
     args.epochs = 1
-    args.batch_size = 128
+    args.batch_size = 16
     args.lr = 1e-3
     args.loss_weights = {
         'loss_intent': 1.0,
