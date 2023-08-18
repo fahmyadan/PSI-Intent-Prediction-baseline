@@ -175,6 +175,9 @@ class GRUInt(nn.Module):
     def __init__(self, args, model_opts):
         super(GRUInt, self).__init__()
 
+
+        self.model_opts = model_opts
+        self.activation = model_opts['output_activation']
         enc_in_dim = model_opts['enc_in_dim']
         enc_out_dim = model_opts['enc_out_dim']
         output_dim = model_opts['output_dim']
@@ -203,6 +206,7 @@ class GRUInt(nn.Module):
             nn.Linear(16, self.output_dim)
 
         )
+    
 
         if model_opts['output_activation'] == 'tanh':
             self.activation = nn.Tanh()
@@ -210,7 +214,14 @@ class GRUInt(nn.Module):
             self.activation = nn.Sigmoid()
         else:
             self.activation = nn.Identity()
-
+        
+        
+        self.fc2 = nn.Sequential(
+            nn.Linear(230400, 16),
+            nn.ReLU(),
+            nn.Linear(16,16),
+            self.activation
+        )
         self.module_list = [self.temp_encoder, self.fc] #, self.fc_emb, self.decoder
         # self._reset_parameters()
         # assert self.enc_out_dim == self.dec_out_dim
@@ -222,8 +233,12 @@ class GRUInt(nn.Module):
 
         enc_last_output = enc_output[:, -1:, :]  # bs x 1 x hidden_dim
         output = self.fc(enc_last_output)
-        outputs = output.unsqueeze(1) # bs x 1 --> bs x 1 x 1
-        return outputs  # shape: bs x predict_length x output_dim, no activation
+        transpose_out = torch.transpose(output,2,0)
+
+        last_out = self.fc2(transpose_out)
+        # output_size = (self.model_opts['batch_size'] , 1,1)
+        # outputs = output.unsqueeze(1) # bs x 1 --> bs x 1 x 1
+        return last_out  # shape: bs x predict_length x output_dim, no activation
 
 
     def _reset_parameters(self):
