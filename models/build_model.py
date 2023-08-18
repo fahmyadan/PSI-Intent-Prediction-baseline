@@ -30,7 +30,8 @@ def get_lstm_intent_bbox(args):
         'observe_length': args.observe_length,  # 15
         'predict_length': 1,  # only predict one intent
         'return_sequence': False,  # False for reason/intent/trust. True for trajectory
-        'output_activation': 'None'  # [None | tanh | sigmoid | softmax]
+        'output_activation': 'sigmoid',  # [None | tanh | sigmoid | softmax]
+        'batch_size': args.batch_size,
     }
     args.model_configs = model_configs
     model = LSTMIntBbox(args, model_configs)
