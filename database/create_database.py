@@ -3,28 +3,6 @@ import os
 import time
 import pickle
 
-'''
-Database organization
-
-db = {
-    'video_name': {
-        'pedestrian_id': # track_id-#
-        { 
-            'frames': [0, 1, 2, ...], # target pedestrian appeared frames
-            'cv_annotations': {
-                'track_id': track_id, 
-                'bbox': [xtl, ytl, xbr, ybr], 
-            },
-            'nlp_annotations': {
-                vid_uid_pair: {'intent': [], 'description': [], 'key_frame': []},
-                ...
-            }
-        }
-    }
-}
-'''
-
-
 def create_database(args):
     for split_name in ['train', 'val', 'test']:
         with open(args.video_splits) as f:
@@ -219,46 +197,4 @@ def update_db_annotations(db, db_log, args):
         if len(tracks) > 0:
             with open(db_log, 'a') as f:
                 f.write(f"{video_name} missing pedestrians annotations: {tracks}  \n")
-
-
-# def cut_sequence(db, db_log, args):
-#     # only wanna use some of the sequence, thus cut edges
-#     for vname in sorted(db.keys()):
-#         for pid in sorted(db[vname].keys()):
-#             frames = db[vname][pid]['frames']
-#             first_cog_idx = len(frames) + 1
-#             last_cog_idx = -1
-#             for uv in db[vname][pid]['nlp_annotations'].keys():
-#                 key_frame_list = db[vname][pid]['nlp_annotations'][uv]['key_frame']
-#                 for i in range(len(key_frame_list)):
-#                     if key_frame_list[i] == 1:
-#                         first_cog_idx = min(first_cog_idx, i)
-#                         break
-#                 for j in range(len(key_frame_list)-1, -1, -1):
-#                     if key_frame_list[j] == 1:
-#                         last_cog_idx = max(last_cog_idx, j)
-#                         break
-#
-#             if first_cog_idx > len(frames) or last_cog_idx < 0:
-#                 print("ERROR! NO key frames found in ", vname, pid)
-#             else:
-#                 print("First and last annotated key frames are: ", frames[first_cog_idx], frames[last_cog_idx])
-#                 print('In total frames # = ', last_cog_idx - first_cog_idx, ' out of ', len(frames))
-#
-#             if last_cog_idx - first_cog_idx < args.max_track_size:
-#                 print(vname, pid, " too few frames left after cutting sequence.")
-#                 del db[vname][pid]
-#             else:
-#                 db[vname][pid]['frames'] = db[vname][pid]['frames'][first_cog_idx: last_cog_idx+1]
-#                 db[vname][pid]['cv_annotations']['bbox'] = db[vname][pid]['cv_annotations']['bbox'][first_cog_idx: last_cog_idx + 1]
-#                 db[vname][pid]['frames'] = db[vname][pid]['frames'][first_cog_idx: last_cog_idx + 1]
-#                 for uv in db[vname][pid]['nlp_annotations'].keys():
-#                     db[vname][pid]['nlp_annotations'][uv]['intent'] = db[vname][pid]['nlp_annotations'][uv]['intent'][first_cog_idx: last_cog_idx + 1]
-#                     db[vname][pid]['nlp_annotations'][uv]['description'] = db[vname][pid]['nlp_annotations'][uv]['description'][
-#                                                           first_cog_idx: last_cog_idx + 1]
-#                     db[vname][pid]['nlp_annotations'][uv]['key_frame'] = db[vname][pid]['nlp_annotations'][uv]['key_frame'][
-#                                                                       first_cog_idx: last_cog_idx + 1]
-#         if len(db[vname].keys()) < 1:
-#             print(vname, "After cutting sequence edges, not enough frames left! Delete!")
-#             del db[vname]
 

@@ -7,133 +7,58 @@ import PIL
 from PIL import Image
 import copy
 from torch.utils.data.sampler import WeightedRandomSampler
-
+import pdb
 
 
 class VideoDataset(torch.utils.data.Dataset):
     def __init__(self, data, args, stage='train'):
         super(VideoDataset, self).__init__()
-        # ['frame', 'bbox', 'binary_intent', 'reason_feats', 'ped_id', 'video_id']
         self.data = data
         self.args = args
         self.stage = stage
         self.set_transform()
         self.images_path = os.path.join(args.dataset_root_path, 'frames')
-        print(self.data.keys())
 
     def __getitem__(self, index):
         video_ids = self.data['video_id'][index]
         ped_ids = self.data['ped_id'][index]
-        assert video_ids[0] == video_ids[-1] # all video_id should be the same
-        assert ped_ids[0] == ped_ids[-1]  # all video_id should be the same
         frame_list = self.data['frame'][index][:self.args.observe_length] # return first 15 frames as observed
-
         bboxes = self.data['bbox'][index] # return all 60 frames #[:-1] # take first 15 frames as input
-
         intention_binary = self.data['intention_binary'][index] # all frames intentions are returned
         intention_prob = self.data['intention_prob'][index] # all frames, 3-dimension votes probability
-
-        # reason = [np.array(ele) for ele in self.data['reason_feats'][index]]
-        # reason_origin = np.array(reason) # reason of count # all 60 frames reasons are returned
-        # reason = np.array([[1 if r > 0 else 0 for r in rs] for rs in reason]) #reason > 0 # change reason to binary{0, 1}
-        #
         disagree_score = self.data['disagree_score'][index] # all scores for all frames are returned
-
-        assert len(bboxes) == self.args.max_track_size # following bboxes are used to calculate trajectory
-        assert len(frame_list) == self.args.observe_length # only 15 frames is necessary
-
-        # if self.args.load_image:
-        #     images, cropped_images = self.load_images(video_id, frame_list, bboxes)
-        # else:
-        #     images, cropped_images = [], []
-
-        global_featmaps, local_featmaps = self.load_features(video_ids, ped_ids, frame_list)
-        reason_features = self.load_reason_features(video_ids, ped_ids, frame_list)
-
+        description = self.data['description'][index] 
+        #speed = self.data['speed'][index] 
+        skeleton = self.data['skeleton'][index] 
+        images, cropped_images = self.load_images(video_ids, frame_list, bboxes)
         for f in range(len(frame_list)): #(len(bboxes)):
             box = bboxes[f]
             xtl, ytl, xrb, yrb = box
-
             if self.args.task_name == 'ped_intent' or self.args.task_name == 'ped_traj':
                 bboxes[f] = [xtl, ytl, xrb, yrb]
-
-
         if self.args.normalize_bbox == 'L2':
-            raise Exception("Bboxes nromalize is not defined!")
+            raise Exception("Bboxes L2 normalize is not defined!")
         elif self.args.normalize_bbox == 'subtract_first_frame':
             bboxes = bboxes - bboxes[:1, :] # minus the first frame bbox positions
-        else:
-            pass
-
-
-
         data = {
-            # 'cropped_images': cropped_images,
-            # 'images': images,
-            'local_featmaps': local_featmaps,
-            'global_featmaps': global_featmaps,
+            'cropped_images': cropped_images,
+            'images': images,
             'bboxes': bboxes,
-            # 'intention_onehot': intention_onehot,
             'intention_binary': intention_binary,
             'intention_prob': intention_prob,
-            'reason_feats': reason_features,
-            # 'reason': reason,
-            # 'reason_origin': reason_origin,
             'frames': np.array([int(f) for f in frame_list]),
             'video_id': video_ids[0], #int(video_id[0][0].split('_')[1])
             'ped_id': ped_ids[0],
-            'disagree_score': disagree_score
+            'disagree_score': disagree_score,
+            'description':description,
+            #'speed' : speed
+            'skeleton': skeleton
         }
 
         return data
 
     def __len__(self):
         return len(self.data['frame'])
-
-    ''' All below are util functions '''
-    def load_reason_features(self, video_ids, ped_ids, frame_list):
-        feat_list = []
-        video_name = video_ids[0]
-        if 'rsn' in self.args.model_name:
-            for i in range(len(frame_list)):
-                fid = frame_list[i]
-                pid = ped_ids[i]
-                local_path = os.path.join(self.args.dataset_root_path, 'features/bert_description',
-                                          video_name, pid)
-                feat_file = np.load(local_path + f'/{fid:03d}.npy')
-                feat_list.append(torch.tensor(feat_file))
-
-        feat_list = [] if len(feat_list) < 1 else torch.stack(feat_list)
-        return feat_list
-
-
-    def load_features(self, video_ids, ped_ids, frame_list):
-        global_featmaps = []
-        local_featmaps = []
-        video_name = video_ids[0]
-        if 'global' in self.args.model_name:
-            for i in range(len(frame_list)):
-                fid = frame_list[i]
-                pid = ped_ids[i]
-
-                glob_path = os.path.join(self.args.dataset_root_path, 'features', self.args.backbone, 'global_feats', video_name)
-                glob_featmap = np.load(glob_path + f'/{fid:03d}.npy')
-                global_featmaps.append(torch.tensor(glob_featmap))
-
-        if 'ctxt' in self.args.model_name:
-            for i in range(len(frame_list)):
-                fid = frame_list[i]
-                pid = ped_ids[i]
-                local_path = os.path.join(self.args.dataset_root_path, 'features', self.args.backbone, 'context_feats',
-                                          video_name, pid)
-                local_featmap = np.load(local_path + f'/{fid:03d}.npy')
-                local_featmaps.append(torch.tensor(local_featmap))
-
-        global_featmaps = [] if len(global_featmaps) < 1 else torch.stack(global_featmaps)
-        local_featmaps = [] if len(local_featmaps) < 1 else torch.stack(local_featmaps)
-
-        return global_featmaps, local_featmaps
-
 
     def load_images(self, video_ids, frame_list, bboxes):
         images = []
@@ -143,42 +68,22 @@ class VideoDataset(torch.utils.data.Dataset):
         for i in range(len(frame_list)):
             frame_id = frame_list[i]
             bbox = bboxes[i]
-            # load original image
-            # print(video_id, frame_list, video_name, frame_id, bbox)
-            img_path = os.path.join(self.images_path, video_name, str(frame_id).zfill(5)+'.png')
-            # print(img_path)
+            img_path = os.path.join(self.images_path, video_name, str(frame_id).zfill(3)+'.jpg')
             img = self.rgb_loader(img_path)
-            print(img.shape)# 2048 x 2048 x 3 --> 1280 x 720
-            # print("Original image size: ", img.shape, bbox)
-            # Image.fromarray(img).show()
-            # img.shape: H x W x C, RGB channel
-            # crop pedestrian surrounding image
-            ori_bbox = copy.deepcopy(bbox)
 
             bbox = self.jitter_bbox(img, [bbox], self.args.crop_mode, 2.0)[0]
-
-            # x1, y1, x2, y2 = bbox
-
             bbox = self.squarify(bbox, 1, img.shape[1])
             bbox = list(map(int, bbox[0:4]))
 
             cropped_img = Image.fromarray(img).crop(bbox)
             cropped_img = np.array(cropped_img)
-            if not cropped_img.shape:
-                print("Error in crop: ", video_id[0][0], frame_id, ori_bbox, bbox)
             cropped_img = self.img_pad(cropped_img, mode='pad_resize', size=224) # return PIL.image type
 
             cropped_img = np.array(cropped_img)
-            # cv2.imshow(str(i), np.array(cropped_img))
-            # cv2.waitKey(1000)
-            # cv2.destroyAllWindows()
 
             if self.transform:
-                # print("before transform - img: ", img.shape, " cropped: ", cropped_img.shape)
                 img = self.transform(img)
                 cropped_img = self.transform(cropped_img)
-                # print("after transform - img: ", img.shape, " cropped: ", cropped_img.shape)
-                # After transform, changed to tensor, img.shape: C x H x W
             images.append(img)
             cropped_images.append(cropped_img)
 
@@ -222,14 +127,9 @@ class VideoDataset(torch.utils.data.Dataset):
         # width_change = float(bbox[4])*self._squarify_ratio - float(bbox[3])
         bbox[0] = bbox[0] - width_change/2
         bbox[2] = bbox[2] + width_change/2
-        # bbox[1] = str(float(bbox[1]) - width_change/2)
-        # bbox[3] = str(float(bbox[3]) + width_change)
-        # Squarify is applied to bounding boxes in Matlab coordinate starting from 1
         if bbox[0] < 0:
             bbox[0] = 0
 
-        # check whether the new bounding box goes beyond image boarders
-        # If this is the case, the bounding box is shifted back
         if bbox[2] > img_width:
             # bbox[1] = str(-float(bbox[3]) + img_dimensions[0])
             bbox[0] = bbox[0]-bbox[2] + img_width

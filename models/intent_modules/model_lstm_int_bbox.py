@@ -1,12 +1,39 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
+import pdb
 
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
+class ImageFeatureExtractor(nn.Module):
+    def __init__(self, output_size):
+        super(ImageFeatureExtractor, self).__init__()
+        self.resnet = models.resnet50(pretrained=True)
+        self.resnet.fc = nn.Identity()  # Remove the final layer
+        self.pooling = nn.AdaptiveAvgPool2d(output_size)
+        
+    def forward(self, x):
+        # x shape: [batch_size, sequence_length, num_channels, height, width]
+        batch_size, sequence_length, C, H, W = x.size()
+        
+        # Reshape x to: [batch_size * sequence_length, num_channels, height, width]
+        x = x.view(batch_size * sequence_length, C, H, W)
+        x = self.resnet(x)
+        
+        # Reshape x back to: [batch_size, sequence_length, ...]
+        x = x.view(batch_size, sequence_length, -1)
+        
+        # Average across the sequence_length dimension
+        x = x.mean(dim=1)
+        
+        # Now x is of shape [batch_size, num_features]
+        x = self.pooling(x.unsqueeze(2).unsqueeze(3)).squeeze(-1).squeeze(-1)
+        
+        return x
 
 class LSTMIntBbox(nn.Module):
     def __init__(self, args, model_configs):
@@ -16,33 +43,27 @@ class LSTMIntBbox(nn.Module):
         self.observe_length = self.args.observe_length
         self.predict_length = self.args.predict_length
 
-        self.backbone = args.backbone
+        self.backbone = models.resnet50(pretrained=True)
         self.intent_predictor = LSTMInt(self.args, self.model_configs['intent_model_opts'])
         # intent predictor, always output (bs x 1) intention logits
-        self.traj_predictor = None
 
         self.module_list = self.intent_predictor.module_list
         self.network_list = [self.intent_predictor]
-        # self._reset_parameters()
-        # self.optimizer = None
-        # self.build_optimizer(args)
-
+        self.image_feature_extractor = ImageFeatureExtractor(output_size=(1, 1))
+        
     def forward(self, data):
         bbox = data['bboxes'][:, :self.args.observe_length, :].type(FloatTensor)
-        # global_imgs = data['images']
-        # local_imgs = data['cropped_images']
-        dec_input_emb = None # as the additional emb for intent predictor
-        # bbox: shape = [bs x observe_length x enc_input_dim]
-        assert bbox.shape[1] == self.observe_length
-
-        # 1. backbone feature (to be implemented for images)
-        if self.backbone is not None:
-            pass
-
-        # 2. intent prediction
-        intent_pred = self.intent_predictor(bbox, dec_input_emb)
-        # output shape: bs x int_pred_len=1 x int_dim=1
-
+        images = data['cropped_images'].type(FloatTensor)  # Assume 'images' key in data dictionary
+        description = data['description'].type(FloatTensor)  # Corrected key in data dictionary
+        
+        # Extract image features
+        image_features = self.image_feature_extractor(images)
+        
+        combined_features = torch.cat([bbox[:, -1, :], image_features, description.mean(dim=1)], dim=1)
+        
+        # Pass concatenated features to intent predictor
+        intent_pred = self.intent_predictor(combined_features.unsqueeze(1), None)
+        
         return intent_pred.squeeze()
 
     def build_optimizer(self, args):
@@ -105,8 +126,6 @@ class LSTMInt(nn.Module):
 
         enc_in_dim = model_opts['enc_in_dim']
         enc_out_dim = model_opts['enc_out_dim']
-        # dec_in_emb_dim = model_opts['dec_in_emb_dim']
-        # dec_out_dim = model_opts['dec_out_dim']
         output_dim = model_opts['output_dim']
         n_layers = model_opts['n_layers']
         dropout = model_opts['dropout']
@@ -132,31 +151,18 @@ class LSTMInt(nn.Module):
             nn.Linear(16, self.output_dim)
 
         )
-
-        if model_opts['output_activation'] == 'tanh':
-            self.activation = nn.Tanh()
-        elif model_opts['output_activation'] == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        else:
-            self.activation = nn.Identity()
+        self.activation = nn.Sigmoid()
 
         self.module_list = [self.encoder, self.fc] #, self.fc_emb, self.decoder
-        # self._reset_parameters()
-        # assert self.enc_out_dim == self.dec_out_dim
 
     def forward(self, enc_input, dec_input_emb=None):
         enc_output, (enc_hc, enc_nc) = self.encoder(enc_input)
-        # because 'batch_first=True'
-        # enc_output: bs x ts x (1*hiden_dim)*enc_hidden_dim --- only take the last output, concatenated with dec_input_emb, as input to decoder
-        # enc_hc:  (n_layer*n_directions) x bs x enc_hidden_dim
-        # enc_nc:  (n_layer*n_directions) x bs x enc_hidden_dim
-        enc_last_output = enc_output[:, -1:, :]  # bs x 1 x hidden_dim
+        enc_last_output = enc_output[:, -1:, :] 
         output = self.fc(enc_last_output)
-        outputs = output.unsqueeze(1) # bs x 1 --> bs x 1 x 1
-        return outputs  # shape: bs x predict_length x output_dim, no activation
+        outputs = output.unsqueeze(1) 
+        return outputs  
 
 
     def _reset_parameters(self):
-        # Original Transformer initialization, see PyTorch documentation
         nn.init.xavier_uniform_(self.fc.weight)
         self.fc.bias.data.fill_(0)

@@ -1,1 +1,14 @@
 __pycache__/
+dataset/
+ckpts/
+data/__pycache__/
+utils/__pycache__/
+dataset.zip
+__pycache__/opts.cpython-38.pyc
+database/test_seq.pkl
+database/driving_database_test.pkl
+database/driving_database_train.pkl
+database/driving_database_val.pkl
+database/val_seq.pkl
+__pycache__/opts.cpython-38.pyc
+__pycache__/test.cpython-38.pyc

@@ -41,7 +41,7 @@ def get_opts():
                         help='If normalize bbox. [L2 | subtract_first_frame | divide_image_size]')
     parser.add_argument('--image_shape', type=tuple, default=(1280, 720),
                         help='Image shape: PSI(1280, 720).')
-    parser.add_argument('--load_image', type=bool, default=False,
+    parser.add_argument('--load_image', type=bool, default=True,
                         help='Do not load image to backbone if not necessary')
 
     # about models
