@@ -3,26 +3,19 @@ import pickle
 import numpy as np
 import torch
 import json
-# from create_database import create_intent_database
 from data.process_sequence import generate_data_sequence
 from data.custom_dataset import VideoDataset
 import pdb
 def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     # with open(os.path.join(args.database_path, 'intent_database_train.pkl'), 'rb') as fid:
     #     imdb_train = pickle.load(fid)
-    # with open(os.path.join(args.database_path, 'driving_database_train.pkl'), 'rb') as fid:
-    #     driving_train = pickle.load(fid)
-    # train_seq = generate_data_sequence('train', imdb_train, driving_train, args)
+    # train_seq = generate_data_sequence('train', imdb_train, args)
     # with open(os.path.join(args.database_path, 'intent_database_val.pkl'), 'rb') as fid:
     #     imdb_val = pickle.load(fid)
-    # with open(os.path.join(args.database_path, 'driving_database_val.pkl'), 'rb') as fid:
-    #     driving_val = pickle.load(fid)
-    # val_seq = generate_data_sequence('val', imdb_val, driving_val, args)
+    # val_seq = generate_data_sequence('val', imdb_val, args)
     # with open(os.path.join(args.database_path, 'intent_database_test.pkl'), 'rb') as fid:
     #     imdb_test = pickle.load(fid)
-    # with open(os.path.join(args.database_path, 'driving_database_test.pkl'), 'rb') as fid:
-    #     driving_test = pickle.load(fid)
-    # test_seq = generate_data_sequence('test', imdb_test, driving_test, args)
+    # test_seq = generate_data_sequence('test', imdb_test, args)
     # with open('database/train_seq.pkl', 'wb') as f:
     #     pickle.dump(train_seq, f)
     # with open('database/val_seq.pkl', 'wb') as f:
@@ -45,11 +38,11 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     test_dataset = VideoDataset(test_d, args)
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=shuffle_train,
-                                           pin_memory=True, sampler=None, drop_last=drop_last_train, num_workers=0)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
-                                              pin_memory=True, sampler=None, drop_last=False, num_workers=0)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-                                              pin_memory=True, sampler=None, drop_last=False, num_workers=0)
+                                           pin_memory=True, sampler=None, drop_last=drop_last_train, num_workers=4)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2, shuffle=False,
+                                              pin_memory=True, sampler=None, drop_last=False, num_workers=4)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=2, shuffle=False,
+                                              pin_memory=True, sampler=None, drop_last=False, num_workers=4)
     return train_loader, val_loader, test_loader
 
 

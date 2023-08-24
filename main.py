@@ -26,8 +26,12 @@ def main(args):
     train_loader, val_loader, test_loader = get_dataloader(args)
 
     ''' 2. Create models '''
-    model, optimizer, scheduler = build_model(args)
-    model = nn.DataParallel(model)
+    if args.continue_learning:
+        model, optimizer, scheduler, start_epoch = load_checkpoint(model, optimizer, scheduler, os.path.join(args.checkpoint_path, 'checkpoint.pth'))
+        model = nn.DataParallel(model)
+    else:
+        model, optimizer, scheduler = build_model(args)
+        model = nn.DataParallel(model)
 
     # ''' 3. Train '''
     train_intent(model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer)
@@ -62,7 +66,7 @@ if __name__ == '__main__':
 
     # Task
     args.task_name = 'ped_intent'
-
+    args.continue_learning = False
     if args.task_name == 'ped_intent':
         args.database_file = 'intent_database_train.pkl'
         args.intent_model = True
@@ -101,15 +105,15 @@ if __name__ == '__main__':
 
     # Train
     args.epochs = 10
-    args.batch_size = 8
-    args.lr = 1e-4
+    args.batch_size = 6
+    args.lr = 1e-3
     args.loss_weights = {
         'loss_intent': 1.0,
         'loss_traj': 1.0,
         'loss_driving': 1.0
     }
-    args.val_freq = 10
-    args.test_freq = 10
+    args.val_freq = 1
+    args.test_freq = 1
     args.print_freq = 10
 
     # Record

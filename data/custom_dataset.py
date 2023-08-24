@@ -28,7 +28,6 @@ class VideoDataset(torch.utils.data.Dataset):
         intention_prob = self.data['intention_prob'][index] # all frames, 3-dimension votes probability
         disagree_score = self.data['disagree_score'][index] # all scores for all frames are returned
         description = self.data['description'][index] 
-        #speed = self.data['speed'][index] 
         skeleton = self.data['skeleton'][index] 
         images, cropped_images = self.load_images(video_ids, frame_list, bboxes)
         for f in range(len(frame_list)): #(len(bboxes)):
@@ -41,7 +40,7 @@ class VideoDataset(torch.utils.data.Dataset):
         elif self.args.normalize_bbox == 'subtract_first_frame':
             bboxes = bboxes - bboxes[:1, :] # minus the first frame bbox positions
         data = {
-            'cropped_images': cropped_images,
+            # 'cropped_images': cropped_images,
             'images': images,
             'bboxes': bboxes,
             'intention_binary': intention_binary,
@@ -51,7 +50,6 @@ class VideoDataset(torch.utils.data.Dataset):
             'ped_id': ped_ids[0],
             'disagree_score': disagree_score,
             'description':description,
-            #'speed' : speed
             'skeleton': skeleton
         }
 
@@ -97,24 +95,18 @@ class VideoDataset(torch.utils.data.Dataset):
 
     def set_transform(self):
         if self.stage == 'train':
-            resize_size = 256
-            crop_size = 224
             self.transform = transforms.Compose([
                 transforms.ToPILImage(),
-                transforms.Resize((resize_size, resize_size)),
-                transforms.RandomCrop(crop_size),
-                transforms.RandomHorizontalFlip(),
+                transforms.Resize((360, 640)),
+                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5), 
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
             ])
         else:
-            resize_size = 256
-            crop_size = 224
             self.transform = transforms.Compose([
                 transforms.ToPILImage(),
-                transforms.Resize((resize_size, resize_size)),
-                transforms.CenterCrop(crop_size),
+                transforms.Resize((360, 640)),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
@@ -137,17 +129,6 @@ class VideoDataset(torch.utils.data.Dataset):
         return bbox
 
     def jitter_bbox(self, img, bbox, mode, ratio):
-        '''
-        This method jitters the position or dimentions of the bounding box.
-        mode: 'same' returns the bounding box unchanged
-              'enlarge' increases the size of bounding box based on the given ratio.
-              'random_enlarge' increases the size of bounding box by randomly sampling a value in [0,ratio)
-              'move' moves the center of the bounding box in each direction based on the given ratio
-              'random_move' moves the center of the bounding box in each direction by randomly sampling a value in [-ratio,ratio)
-        ratio: The ratio of change relative to the size of the bounding box. For modes 'enlarge' and 'random_enlarge'
-               the absolute value is considered.
-        Note: Tha ratio of change in pixels is calculated according to the smaller dimension of the bounding box.
-        '''
         assert (mode in ['same', 'enlarge', 'move', 'random_enlarge', 'random_move']), \
             'mode %s is invalid.' % mode
 
@@ -200,12 +181,6 @@ class VideoDataset(torch.utils.data.Dataset):
         return jit_boxes
 
     def bbox_sanity_check(self, img, bbox):
-        '''
-        This is to confirm that the bounding boxes are within image boundaries.
-        If this is not the case, modifications is applied.
-        This is to deal with inconsistencies in the annotation tools
-        '''
-
         img_heigth, img_width, channel = img.shape
         if bbox[0] < 0:
             bbox[0] = 0.0
@@ -218,22 +193,6 @@ class VideoDataset(torch.utils.data.Dataset):
         return bbox
 
     def img_pad(self, img, mode='warp', size=224):
-        '''
-        Pads a given image.
-        Crops and/or pads a image given the boundries of the box needed
-        img: the image to be coropped and/or padded
-        bbox: the bounding box dimensions for cropping
-        size: the desired size of output
-        mode: the type of padding or resizing. The modes are,
-            warp: crops the bounding box and resize to the output size
-            same: only crops the image
-            pad_same: maintains the original size of the cropped box  and pads with zeros
-            pad_resize: crops the image and resize the cropped box in a way that the longer edge is equal to
-            the desired output size in that direction while maintaining the aspect ratio. The rest of the image is
-            padded with zeros
-            pad_fit: maintains the original size of the cropped box unless the image is biger than the size in which case
-            it scales the image down, and then pads it
-        '''
         assert (mode in ['same', 'warp', 'pad_same', 'pad_resize', 'pad_fit']), 'Pad mode %s is invalid' % mode
         image = img.copy()
         if mode == 'warp':

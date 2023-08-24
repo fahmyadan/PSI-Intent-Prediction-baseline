@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import os
 from .intent_modules.model_lstm_int_bbox import LSTMIntBbox
-from .intent_modules.moedel_transformer import CrossingIntentPredictor
+from .intent_modules.model_transformer import CrossingIntentPredictor
 from .traj_modules.model_lstmed_traj_bbox import LSTMedTrajBbox
 
 cuda = True if torch.cuda.is_available() else False

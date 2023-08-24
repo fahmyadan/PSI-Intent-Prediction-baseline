@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from torchvision.models import ResNet101_Weights
+from torchvision.models import ResNet50_Weights
 import pdb
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
@@ -40,7 +40,7 @@ class TransformerEncoder(nn.Module):
 class ImageFeatureExtractor(nn.Module):
     def __init__(self):
         super(ImageFeatureExtractor, self).__init__()
-        self.resnet = models.resnet101(weights=ResNet101_Weights.DEFAULT)
+        self.resnet = models.resnet50(weights=ResNet50_Weights.DEFAULT)
         self.resnet.fc = nn.Identity()  
 
     def forward(self, x):
@@ -53,31 +53,28 @@ class ImageFeatureExtractor(nn.Module):
 class CrossingIntentPredictor(nn.Module):
     def __init__(self,):
         super(CrossingIntentPredictor, self).__init__()
-        image_feature_size = 2048  # From the output of ResNet50
-        description_feature_size = 768
+        image_feature_size = 2048  
+        #description_feature_size = 768
         bbox_feature_size = 4
         skeleton_feature_size = 32
         d_model = 512
         nhead = 8
-        num_layers = 6
+        num_layers = 4
         self.observe_length = 15
         dim_feedforward = 2048
         
-        self.image_feature_extractor = ImageFeatureExtractor()
-        self.image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
+        #self.image_feature_extractor = ImageFeatureExtractor()
+        #self.image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
         self.whole_image_feature_extractor = ImageFeatureExtractor()
         self.whole_image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
-        self.image_feature_bn = nn.BatchNorm1d(image_feature_size)
-        self.whole_image_feature_bn = nn.BatchNorm1d(image_feature_size)
         #self.description_transformer = TransformerEncoder(description_feature_size, d_model, nhead, num_layers, dim_feedforward)
         #self.bbox_transformer = TransformerEncoder(bbox_feature_size, d_model, nhead, 2, dim_feedforward)
         #self.skeleton_transformer = TransformerEncoder(skeleton_feature_size, d_model, nhead, 3, dim_feedforward)
         self.bbox_skeleton_transformer = TransformerEncoder(bbox_feature_size + skeleton_feature_size, d_model, nhead, 3, dim_feedforward)
-        self.feature_attention = FeatureAttention(d_model * 3) 
-        self.batch_norm = nn.BatchNorm1d(d_model * 3) 
-        self.fc = nn.Linear(d_model * 3, 1)
+        self.feature_attention = FeatureAttention(d_model * 2) 
+        self.batch_norm = nn.BatchNorm1d(d_model * 2) 
+        self.fc = nn.Linear(d_model * 2, 1)
         self.sigmoid = nn.Sigmoid()
-        xavier_initialize(self)
         
     def forward(self, data):
         bbox = data['bboxes'][:, :self.observe_length, :].type(FloatTensor)
@@ -88,28 +85,19 @@ class CrossingIntentPredictor(nn.Module):
         skeleton = skeleton.view(skeleton.shape[0], self.observe_length, -1)
         whole_images = data['images'][:, :self.observe_length, :].type(FloatTensor)
         #description = data['description'][:, :self.observe_length, :].type(FloatTensor)
-        image_features = self.image_feature_extractor(images)
-        N, T, C = image_features.size()
-        image_features = image_features.view(N*T, C)
-        image_features = self.image_feature_bn(image_features)
-        image_features = image_features.view(N, T, C)
-        image_features = self.image_transformer(image_features)
-
+        #image_features = self.image_feature_extractor(images)
+        #image_features = self.image_transformer(image_features)
         # skeleton_features = self.skeleton_transformer(skeleton)
         whole_image_features = self.whole_image_feature_extractor(whole_images)
-        N, T, C = whole_image_features.size()
-        whole_image_features = whole_image_features.view(N*T, C)
-        whole_image_features = self.whole_image_feature_bn(whole_image_features)
-        whole_image_features = whole_image_features.view(N, T, C)
         whole_image_features = self.whole_image_transformer(whole_image_features)
         #description_features = self.description_transformer(description)
         #bbox_features = self.bbox_transformer(bbox)
         bbox_skeleton = torch.cat([bbox, skeleton], dim=-1)
         bbox_skeleton_features = self.bbox_skeleton_transformer(bbox_skeleton)
-        image_features, whole_image_features, bbox_skeleton_features = self.feature_attention(
-            image_features, whole_image_features, bbox_skeleton_features
+        whole_image_features, bbox_skeleton_features = self.feature_attention(
+            whole_image_features, bbox_skeleton_features
         )
-        combined_features = torch.cat([image_features[:, -1, :], 
+        combined_features = torch.cat([
                                        whole_image_features[:, -1, :], 
                                        bbox_skeleton_features[:, -1, :]], dim=1)
         
@@ -118,20 +106,12 @@ class CrossingIntentPredictor(nn.Module):
         return output.squeeze(-1)
 
     def build_optimizer(self):
-        learning_rate = 0.0001
+        learning_rate = 0.001
         param_group = []
         param_group += [{'params': self.parameters(), 'lr': learning_rate}]
         optimizer = torch.optim.Adam(param_group, lr=learning_rate, eps=1e-7)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
         return optimizer, scheduler
-
-def xavier_initialize(model):
-    """Initialize the weights of the model using Xavier initialization."""
-    for module in model.modules():
-        if isinstance(module, nn.Linear):
-            nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                nn.init.constant_(module.bias, 0)
 
 def normalize_bbox(bbox):
     x, y, w, h = bbox[..., 0], bbox[..., 1], bbox[..., 2], bbox[..., 3]

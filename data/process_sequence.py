@@ -4,15 +4,14 @@ import os
 import pdb
 import cv2
 from data.custom_dataset import VideoDataset
-from transformers import BertTokenizer, BertModel
+from sentence_transformers import SentenceTransformer
 import torch
 from torchvision import transforms
 import PIL
 import matplotlib.pyplot as plt
 from PIL import Image
 from models.pose_resnet import get_pose_net
-tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-model = BertModel.from_pretrained('bert-base-uncased')
+model = SentenceTransformer('all-mpnet-base-v2')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 POSE_RESNET_PATH = '/home/drisk/Downloads/pose_resnet_152_256x256.pth'
@@ -21,7 +20,7 @@ pose_resnet = pose_resnet.to(device)
 pose_resnet.eval()
 
 
-def generate_data_sequence(set_name, database, database_driving, args):
+def generate_data_sequence(set_name, database, args):
     intention_prob = []
     intention_binary = []
     frame_seq = []
@@ -30,7 +29,6 @@ def generate_data_sequence(set_name, database, database_driving, args):
     box_seq = []
     description_seq = []
     disagree_score_seq = []
-    speed_seq = []
     skeleton_seq = []
     video_ids = sorted(database.keys())
     for video in sorted(video_ids): # video_name: e.g., 'video_0001'
@@ -48,15 +46,9 @@ def generate_data_sequence(set_name, database, database_driving, args):
             disagree_score_seq.append(disgrs)
             description_seq.append(descripts)
 
-            if video in database_driving:
-                matching_indices = [i for i, frame in enumerate(database_driving[video]['frames']) if frame in database[video][ped]['frames']]
-                matching_speeds = [database_driving[video]['speed'][i] for i in matching_indices]
-            else:
-                matching_speeds = [20.] * n
-            speed_seq.append(matching_speeds)
             cropped_images_tensor = load_cropped_images(video, database[video][ped]['frames'], database[video][ped]['cv_annotations']['bbox'], args)
             # Split the tensor into batches of size 32
-            batch_size = 32
+            batch_size = 64
             num_batches = len(cropped_images_tensor) // batch_size + (1 if len(cropped_images_tensor) % batch_size else 0)
             all_keypoints = []
             
@@ -68,16 +60,10 @@ def generate_data_sequence(set_name, database, database_driving, args):
                 keypoints = pose_resnet(cropped_images_batch)
                 keypoints_tensor = extract_keypoints_from_heatmaps(keypoints) * 4
                 all_keypoints.append(keypoints_tensor.detach().cpu().numpy())
-                
-                # Optionally, you can visualize the results for the first image of each batch
                 #plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
                 torch.cuda.empty_cache()
-            
-            # Concatenate results from all batches
             all_keypoints = np.concatenate(all_keypoints, axis=0)
             skeleton_seq.append(all_keypoints)
-
-    
     return {
         'frame': frame_seq,
         'bbox': box_seq,
@@ -87,7 +73,6 @@ def generate_data_sequence(set_name, database, database_driving, args):
         'video_id': video_seq,
         'disagree_score': disagree_score_seq,
         'description': description_seq,
-        'speed' : speed_seq,
         'skeleton' : skeleton_seq
     }
 
@@ -122,16 +107,13 @@ def get_intent(database, video_name, ped_id, args):
         intent_seq.append(intent_binary)
         disagree_score = sum([1 if lbl != intent_binary else 0 for lbl in labels]) / n_users
         disagree_seq.append(disagree_score)
-
         descriptions = ''.join(descriptions)
         if descriptions.strip():  # Check if the description is not an empty string
-            inputs = tokenizer(descriptions, padding=True, truncation=True, return_tensors="pt")
-            inputs = {key: val.to(device) for key, val in inputs.items()}
             with torch.no_grad(): 
-                outputs = model(**inputs)
-            description_seq.append(np.array(outputs['pooler_output'][0].cpu()))
+                embeddings = model.encode(descriptions, convert_to_tensor=True, device=device)
+            description_seq.append(embeddings.cpu().numpy())
         else:
-            description_seq.append(np.array(torch.zeros(model.config.hidden_size)))
+            description_seq.append(np.zeros(768))
     return intent_seq, prob_seq, disagree_seq, description_seq
 
 
