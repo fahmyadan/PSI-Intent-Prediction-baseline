@@ -9,3 +9,6 @@ database/driving_database_val.pkl
 data/__pycache__/custom_dataset.cpython-38.pyc
 __pycache__/train.cpython-38.pyc
 data/__pycache__/custom_dataset.cpython-38.pyc
+database/train_seq.pkl
+database/test_seq.pkl
+database/val_seq.pkl
