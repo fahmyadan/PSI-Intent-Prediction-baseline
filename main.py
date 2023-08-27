@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from data.prepare_data import get_dataloader
 from database.create_database import create_database
 from database.create_database_driving import create_database_driving
-
+import torch
 from models.build_model import build_model
 from train import train_intent
 from test import validate_intent, test_intent, predict_intent
@@ -16,6 +16,14 @@ from utils.log import RecordResults
 from utils.evaluate_results import evaluate_intent
 from utils.get_test_intent_gt import get_intent_gt
 import pdb
+
+def load_checkpoint(model, optimizer, scheduler, checkpoint_path):
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    epoch = checkpoint['epoch']
+    return model, optimizer, scheduler, epoch
 
 def main(args):
     writer = SummaryWriter(args.checkpoint_path)
@@ -26,15 +34,14 @@ def main(args):
     train_loader, val_loader, test_loader = get_dataloader(args)
 
     ''' 2. Create models '''
+    model, optimizer, scheduler = build_model(args)
+    model = nn.DataParallel(model)
+    start_epoch = 0
     if args.continue_learning:
-        model, optimizer, scheduler, start_epoch = load_checkpoint(model, optimizer, scheduler, os.path.join(args.checkpoint_path, 'checkpoint.pth'))
-        model = nn.DataParallel(model)
-    else:
-        model, optimizer, scheduler = build_model(args)
-        model = nn.DataParallel(model)
+        model, optimizer, scheduler, start_epoch = load_checkpoint(model, optimizer, scheduler, '/home/drisk/PSI/ckpts/ped_intent/PSI2.0/transformer/20230825211130/epoch_2_checkpoint.pth')
 
     # ''' 3. Train '''
-    train_intent(model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer)
+    train_intent(start_epoch, model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer)
 
     val_gt_file = str(Path(__file__).parents[0]) + '/test_gt/val_intent_gt.json'
     test_gt_path = str(Path(__file__).parents[0]) + '/test_gt'
@@ -85,7 +92,7 @@ if __name__ == '__main__':
         args.traj_model = True
         args.traj_loss = ['bbox_l1']
 
-    args.seq_overlap_rate = 0.9 # overlap rate for trian/val set
+    args.seq_overlap_rate = 0.5 # overlap rate for trian/val set
     args.test_seq_overlap_rate = 1 # overlap for test set. if == 1, means overlap is one frame, following PIE
     args.observe_length = 15
     if args.task_name == 'ped_intent':
@@ -104,8 +111,8 @@ if __name__ == '__main__':
 
 
     # Train
-    args.epochs = 10
-    args.batch_size = 6
+    args.epochs = 20
+    args.batch_size = 8
     args.lr = 1e-3
     args.loss_weights = {
         'loss_intent': 1.0,
@@ -130,3 +137,4 @@ if __name__ == '__main__':
         os.makedirs(result_path)
 
     main(args)
+

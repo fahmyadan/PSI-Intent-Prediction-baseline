@@ -10,26 +10,22 @@ LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 def validate_intent(epoch, model, dataloader, args, recorder, writer):
     model.eval()
     niters = len(dataloader)
-    for itern, data in enumerate(dataloader):
-        intent_logit = model.forward(data)
-        intent_prob = torch.sigmoid(intent_logit)
-        # intent_pred: logit output, bs
-        # traj_pred: logit, bs x ts x 4
+    with torch.no_grad():
+        for itern, data in enumerate(dataloader):
+            intent_logit = model.forward(data)
+            intent_prob = torch.sigmoid(intent_logit)
 
-        # 1. intent loss
-        if args.intent_type == 'mean' and args.intent_num == 2:  # BCEWithLogitsLoss
             gt_intent = data['intention_binary'][:, args.observe_length].type(FloatTensor)
             gt_intent_prob = data['intention_prob'][:, args.observe_length].type(FloatTensor)
-            # gt_disagreement = data['disagree_score'][:, args.observe_length]
-            # gt_consensus = (1 - gt_disagreement).to(device)
 
-        recorder.eval_intent_batch_update(itern, data, gt_intent.detach().cpu().numpy(),
-                                   intent_prob.detach().cpu().numpy(), gt_intent_prob.detach().cpu().numpy())
 
-        if itern % args.print_freq == 0:
-            print(f"Epoch {epoch}/{args.epochs} | Batch {itern}/{niters}")
+            recorder.eval_intent_batch_update(itern, data, gt_intent.detach().cpu().numpy(),
+                                    intent_prob.detach().cpu().numpy(), gt_intent_prob.detach().cpu().numpy())
 
-    recorder.eval_intent_epoch_calculate(writer)
+            if itern % args.print_freq == 0:
+                print(f"Epoch {epoch}/{args.epochs} | Batch {itern}/{niters}")
+
+        recorder.eval_intent_epoch_calculate(writer)
 
     return recorder
 
@@ -38,21 +34,20 @@ def test_intent(epoch, model, dataloader, args, recorder, writer):
     model.eval()
     niters = len(dataloader)
     recorder.eval_epoch_reset(epoch, niters)
-    for itern, data in enumerate(dataloader):
-        intent_logit = model.forward(data)
-        intent_prob = torch.sigmoid(intent_logit)
-        # intent_pred: logit output, bs x 1
-        # traj_pred: logit, bs x ts x 4
+    with torch.no_grad():
+        for itern, data in enumerate(dataloader):
+            intent_logit = model.forward(data)
+            intent_prob = torch.sigmoid(intent_logit)
 
-        # 1. intent loss
-        if args.intent_type == 'mean' and args.intent_num == 2:  # BCEWithLogitsLoss
-            gt_intent = data['intention_binary'][:, args.observe_length].type(FloatTensor)
-            gt_intent_prob = data['intention_prob'][:, args.observe_length].type(FloatTensor)
+            # 1. intent loss
+            if args.intent_type == 'mean' and args.intent_num == 2:  # BCEWithLogitsLoss
+                gt_intent = data['intention_binary'][:, args.observe_length].type(FloatTensor)
+                gt_intent_prob = data['intention_prob'][:, args.observe_length].type(FloatTensor)
 
-        recorder.eval_intent_batch_update(itern, data, gt_intent.detach().cpu().numpy(),
-                                   intent_prob.detach().cpu().numpy(), gt_intent_prob.detach().cpu().numpy())
+            recorder.eval_intent_batch_update(itern, data, gt_intent.detach().cpu().numpy(),
+                                    intent_prob.detach().cpu().numpy(), gt_intent_prob.detach().cpu().numpy())
 
-    recorder.eval_intent_epoch_calculate(writer)
+        recorder.eval_intent_epoch_calculate(writer)
 
     return recorder
 
