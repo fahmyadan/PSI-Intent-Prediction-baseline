@@ -1,0 +1,3 @@
+[submodule "models/facenet_pytorch"]
+	path = models/facenet_pytorch
+	url = git@github.com:fahmyadan/facenet-pytorch.git
