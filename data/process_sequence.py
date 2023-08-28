@@ -10,15 +10,22 @@ from torchvision import transforms
 import PIL
 import matplotlib.pyplot as plt
 from PIL import Image
+import os
+from torchvision.utils import flow_to_image
+from torchvision.models.optical_flow import raft_large, Raft_Large_Weights, raft_small, Raft_Small_Weights
+from torchvision.transforms import functional as F
+import torch.nn.functional as tF
 from models.pose_resnet import get_pose_net
 model = SentenceTransformer('all-mpnet-base-v2')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
+
 POSE_RESNET_PATH = '/home/drisk/Downloads/pose_resnet_152_256x256.pth'
 pose_resnet = get_pose_net(num_layers=152, init_weights=True, pretrained=POSE_RESNET_PATH)
 pose_resnet = pose_resnet.to(device)
 pose_resnet.eval()
-
+# raft = raft_large(weights=Raft_Large_Weights.DEFAULT, progress=False).to(device)
+# raft.eval()
 
 def generate_data_sequence(set_name, database, args):
     intention_prob = []
@@ -30,6 +37,7 @@ def generate_data_sequence(set_name, database, args):
     description_seq = []
     disagree_score_seq = []
     skeleton_seq = []
+    cropped_flow_seq = []
     video_ids = sorted(database.keys())
     for video in sorted(video_ids): # video_name: e.g., 'video_0001'
         print(video)
@@ -47,7 +55,7 @@ def generate_data_sequence(set_name, database, args):
             description_seq.append(descripts)
 
             cropped_images_tensor = load_cropped_images(video, database[video][ped]['frames'], database[video][ped]['cv_annotations']['bbox'], args)
-            # Split the tensor into batches of size 32
+            cropped_flow_seq.append
             batch_size = 64
             num_batches = len(cropped_images_tensor) // batch_size + (1 if len(cropped_images_tensor) % batch_size else 0)
             all_keypoints = []
@@ -60,8 +68,8 @@ def generate_data_sequence(set_name, database, args):
                 keypoints = pose_resnet(cropped_images_batch)
                 keypoints_tensor = extract_keypoints_from_heatmaps(keypoints) * 4
                 all_keypoints.append(keypoints_tensor.detach().cpu().numpy())
-                #plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
                 torch.cuda.empty_cache()
+                #plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
             all_keypoints = np.concatenate(all_keypoints, axis=0)
             skeleton_seq.append(all_keypoints)
     return {
@@ -116,11 +124,14 @@ def get_intent(database, video_name, ped_id, args):
             description_seq.append(np.zeros(768))
     return intent_seq, prob_seq, disagree_seq, description_seq
 
-
 def load_cropped_images(video_id, frame_list, bboxes, args):
     images_path = os.path.join(args.dataset_root_path, 'frames')
+    flow_path = os.path.join(args.dataset_root_path, 'flow')
+
     cropped_images = []
     video_name = video_id
+    mean = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
 
     for i in range(len(frame_list)):
         frame_id = frame_list[i]
@@ -139,7 +150,6 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
 
         transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize((256, 256)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
@@ -147,8 +157,32 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
         
         cropped_img = transform(cropped_img)
         cropped_images.append(cropped_img)
+        
+        # if i != len(frame_list) - 1:
+        #     frame_id_next = frame_list[i + 1]
+        #     img_path_next = os.path.join(images_path, video_name, str(frame_id_next).zfill(3) + '.jpg')
+        #     img_next = cv2.imread(img_path_next)
+        #     img_next = cv2.cvtColor(img_next, cv2.COLOR_BGR2RGB)
+        #     image1_tensor = torch.from_numpy(img.transpose((2, 0, 1))).float().div(255).unsqueeze(0).to(device)
+        #     image2_tensor = torch.from_numpy(img_next.transpose((2, 0, 1))).float().div(255).unsqueeze(0).to(device)
 
-    return torch.stack(cropped_images)  # Time x Channel x H x W
+        #     flow_map = raft(image1_tensor, image2_tensor)  # Assuming raft is RAFT instance
+        #     final_flow = flow_map[-1][0].cpu()
+        #     final_flow_img_np = flow_to_image(final_flow)
+        #     final_flow_img_np = final_flow_img_np.permute(1, 2, 0)
+        #     # plt.imshow(final_flow_img_np)
+        #     # plt.title('Optical Flow Image')
+        #     # plt.axis('off')
+        #     # plt.show()
+            
+        #     video_flow_dir = os.path.join(flow_path, video_name)
+        #     if not os.path.exists(video_flow_dir):
+        #         os.makedirs(video_flow_dir)
+        #     flow_data_name = f"{str(frame_id).zfill(3)}.npy"  # Naming convention: frameID_frameIDNext.npy
+        #     flow_data_path = os.path.join(video_flow_dir, flow_data_name)
+        #     np.save(flow_data_path, final_flow_img_np)  # Save numpy array
+
+    return torch.stack(cropped_images)
 
 def squarify(bbox, squarify_ratio, img_width):
     width = abs(bbox[0] - bbox[2])
@@ -228,7 +262,7 @@ def bbox_sanity_check(img, bbox):
         bbox[3] = img_heigth - 1
     return bbox
 
-def img_pad(img, mode='warp', target_width=256, target_height=256):
+def img_pad(img, mode='warp', target_width=224, target_height=224):
 
     image = img.copy()
     img_width = image.shape[1]
@@ -248,7 +282,6 @@ def img_pad(img, mode='warp', target_width=256, target_height=256):
     padded_image.paste(image, ((target_width - new_width) // 2,
                                 (target_height - new_height) // 2))
     return padded_image
-
 
 def extract_keypoints_from_heatmaps(heatmaps):
     # Get the x, y location of the max value for each heatmap

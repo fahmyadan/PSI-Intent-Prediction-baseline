@@ -12,3 +12,5 @@ data/__pycache__/custom_dataset.cpython-38.pyc
 database/train_seq.pkl
 database/test_seq.pkl
 database/val_seq.pkl
+.vscode/settings.json
+__pycache__/train.cpython-38.pyc

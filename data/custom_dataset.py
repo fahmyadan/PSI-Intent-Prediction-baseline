@@ -6,7 +6,7 @@ import cv2
 import PIL
 from PIL import Image
 import copy
-from torch.utils.data.sampler import WeightedRandomSampler
+from torchvideotransforms import video_transforms, volume_transforms
 import pdb
 
 
@@ -18,6 +18,7 @@ class VideoDataset(torch.utils.data.Dataset):
         self.stage = stage
         self.set_transform()
         self.images_path = os.path.join(args.dataset_root_path, 'frames')
+        self.flow_path = os.path.join(self.args.dataset_root_path, 'flow')
 
     def __getitem__(self, index):
         video_ids = self.data['video_id'][index]
@@ -29,16 +30,7 @@ class VideoDataset(torch.utils.data.Dataset):
         disagree_score = self.data['disagree_score'][index] # all scores for all frames are returned
         description = self.data['description'][index] 
         skeleton = self.data['skeleton'][index] 
-        images, cropped_images = self.load_images(video_ids, frame_list, bboxes)
-        for f in range(len(frame_list)): #(len(bboxes)):
-            box = bboxes[f]
-            xtl, ytl, xrb, yrb = box
-            if self.args.task_name == 'ped_intent' or self.args.task_name == 'ped_traj':
-                bboxes[f] = [xtl, ytl, xrb, yrb]
-        if self.args.normalize_bbox == 'L2':
-            raise Exception("Bboxes L2 normalize is not defined!")
-        elif self.args.normalize_bbox == 'subtract_first_frame':
-            bboxes = bboxes - bboxes[:1, :] # minus the first frame bbox positions
+        images, cropped_images, cropped_flows = self.load_images(video_ids, frame_list, bboxes)
         data = {
             'cropped_images': cropped_images,
             'images': images,
@@ -50,7 +42,8 @@ class VideoDataset(torch.utils.data.Dataset):
             'ped_id': ped_ids[0],
             'disagree_score': disagree_score,
             'description':description,
-            'skeleton': skeleton
+            'skeleton': skeleton,
+            'cropped_flows': cropped_flows
         }
 
         return data
@@ -62,7 +55,7 @@ class VideoDataset(torch.utils.data.Dataset):
         images = []
         cropped_images = []
         video_name = video_ids[0]
-
+        cropped_flows = []
         for i in range(len(frame_list)):
             frame_id = frame_list[i]
             bbox = bboxes[i]
@@ -77,15 +70,21 @@ class VideoDataset(torch.utils.data.Dataset):
             cropped_img = np.array(cropped_img)
             cropped_img = self.img_pad(cropped_img, mode='pad_resize', size=224) # return PIL.image type
 
-            cropped_img = np.array(cropped_img)
+            flow_data_name = f"{str(frame_id).zfill(3)}.npy"
+            flow_data_path = os.path.join(self.flow_path, video_name, flow_data_name)
+            flowmap = np.load(flow_data_path)  # Load the flowmap
 
-            if self.transform:
-                img = self.transform(img)
-                cropped_img = self.transform(cropped_img)
-            images.append(img)
+            cropped_flow = Image.fromarray(flowmap).crop(bbox)
+            cropped_flow = np.array(cropped_flow)
+            cropped_flow = self.img_pad(cropped_flow, mode='pad_resize', size=224, type='flow') # return PIL.image type
+            cropped_flow = np.array(cropped_flow)
+            images.append(Image.fromarray(img))
             cropped_images.append(cropped_img)
+            cropped_flows.append(cropped_flow) 
 
-        return torch.stack(images), torch.stack(cropped_images) # Time x Channel x H x W
+        augmented_video_frames = self.transform(images)
+        augmented_cropped_video_frames = self.cropped_transform(cropped_images)
+        return augmented_video_frames , augmented_cropped_video_frames, np.stack(cropped_flows, axis=0) # Time x Channel x H x W
 
 
     def rgb_loader(self, img_path):
@@ -94,23 +93,41 @@ class VideoDataset(torch.utils.data.Dataset):
         return img
 
     def set_transform(self):
+        # You can add more video-specific transformations as needed
         if self.stage == 'train':
-            self.transform = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize((360, 640)),
-                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5), 
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
+            video_transform_list = [
+                video_transforms.Resize((224, 398)),
+                video_transforms.RandomResize((1.1, 1)),
+                video_transforms.RandomCrop((224, 224)),  # Or any other desired size
+                video_transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+                volume_transforms.ClipToTensor(),
+                video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225])
+            ]
+            self.transform = video_transforms.Compose(video_transform_list)
+            cropped_video_transform_list = [
+                video_transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+                volume_transforms.ClipToTensor(),
+                video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225])
+            ]
+            self.cropped_transform = video_transforms.Compose(cropped_video_transform_list)
         else:
-            self.transform = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize((360, 640)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            ])
+            # For validation/testing, you might want to have deterministic transformations
+            video_transform_list = [
+                video_transforms.Resize((224, 398)),
+                video_transforms.CenterCrop((224, 224)),
+                volume_transforms.ClipToTensor(),
+                video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225])
+            ]
+            self.transform = video_transforms.Compose(video_transform_list)
+            cropped_video_transform_list = [
+                volume_transforms.ClipToTensor(),
+                video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225])
+            ]
+            self.cropped_transform = video_transforms.Compose(cropped_video_transform_list)
 
     def squarify(self, bbox, squarify_ratio, img_width):
         width = abs(bbox[0] - bbox[2])
@@ -192,30 +209,21 @@ class VideoDataset(torch.utils.data.Dataset):
             bbox[3] = img_heigth - 1
         return bbox
 
-    def img_pad(self, img, mode='warp', size=224):
-        assert (mode in ['same', 'warp', 'pad_same', 'pad_resize', 'pad_fit']), 'Pad mode %s is invalid' % mode
+    def img_pad(self, img, mode='warp', size=224, type='image'):
         image = img.copy()
-        if mode == 'warp':
-            warped_image = image.resize((size, size), PIL.Image.NEAREST)
-            return warped_image
-        elif mode == 'same':
-            return image
-        elif mode in ['pad_same', 'pad_resize', 'pad_fit']:
-            img_size = (image.shape[0], image.shape[1]) # size is in (width, height)
-            ratio = float(size) / max(img_size)
-            if mode == 'pad_resize' or \
-                    (mode == 'pad_fit' and (img_size[0] > size or img_size[1] > size)):
-                img_size = (int(img_size[0] * ratio), int(img_size[1] * ratio))# tuple([int(img_size[0] * ratio), int(img_size[1] * ratio)])
-                # print(img_size, type(img_size), type(img_size[0]), type(img_size[1]))
-                # print(type(image), image.shape)
-                try:
-                    image = Image.fromarray(image)
-                    image = image.resize(img_size, PIL.Image.NEAREST)
-                except Exception as e:
-                    print("Error from np-array to Image: ", image.shape)
-                    print(e)
-
+        img_size = (image.shape[0], image.shape[1]) # size is in (width, height)
+        ratio = float(size) / max(img_size)
+        if mode == 'pad_resize' or \
+                (mode == 'pad_fit' and (img_size[0] > size or img_size[1] > size)):
+            img_size = (int(img_size[0] * ratio), int(img_size[1] * ratio))# tuple([int(img_size[0] * ratio), int(img_size[1] * ratio)])
+            # print(img_size, type(img_size), type(img_size[0]), type(img_size[1]))
+            # print(type(image), image.shape)
+            image = Image.fromarray(image)
+            image = image.resize(img_size, PIL.Image.NEAREST)
+        if type == 'image':
             padded_image = PIL.Image.new("RGB", (size, size))
-            padded_image.paste(image, ((size - img_size[0]) // 2,
-                                       (size - img_size[1]) // 2))
-            return padded_image
+        else:
+            padded_image = PIL.Image.new("RGB", (size, size), color=(255, 255, 255))
+        padded_image.paste(image, ((size - img_size[0]) // 2,
+                                    (size - img_size[1]) // 2))
+        return padded_image

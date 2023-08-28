@@ -6,6 +6,8 @@ import json
 from data.process_sequence import generate_data_sequence
 from data.custom_dataset import VideoDataset
 import pdb
+from torch.utils.data import DataLoader, WeightedRandomSampler
+
 def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     # with open(os.path.join(args.database_path, 'intent_database_train.pkl'), 'rb') as fid:
     #     imdb_train = pickle.load(fid)
@@ -28,32 +30,39 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
         val_seq = pickle.load(f)
     with open('database/test_seq.pkl', 'rb') as f:
         test_seq = pickle.load(f)
-    train_d = get_train_val_data(train_seq, args, overlap=args.seq_overlap_rate) # returned tracks
-    val_d = get_train_val_data(val_seq, args, overlap=args.test_seq_overlap_rate)
-    test_d = get_test_data(test_seq, args, overlap=args.test_seq_overlap_rate)
+    train_d = get_train_val_data(train_seq, args, overlap=1) # returned tracks
+    val_d = get_train_val_data(val_seq, args, overlap=1)
+    test_d = get_test_data(test_seq, args, overlap=1)
 
     # Create video dataset and dataloader
     train_dataset = VideoDataset(train_d, args)
     val_dataset = VideoDataset(val_d, args)
     test_dataset = VideoDataset(test_d, args)
+    # Create a WeightedRandomSampler
+    portion = 1/3
+    num_samples = int(len(train_dataset) * portion)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=shuffle_train,
-                                           pin_memory=True, sampler=None, drop_last=drop_last_train, num_workers=4)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=2, shuffle=False,
+    sampler = WeightedRandomSampler([1.35682197] * len(train_dataset), num_samples, replacement=False)
+
+
+    # Use the sampler in your DataLoader
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, # Set shuffle to False
+                                            sampler=sampler, pin_memory=True, drop_last=drop_last_train, num_workers=4)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=4, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=2, shuffle=False,
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=4, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
     return train_loader, val_loader, test_loader
 
 
-def get_train_val_data(data, args, overlap=0.5):  # overlap==0.5, seq_len=15
+def get_train_val_data(data, args, overlap=0.5):  
     seq_len = args.max_track_size
     overlap = overlap
     tracks = get_tracks(data, seq_len, args.observe_length, overlap, args)
     return tracks
 
 
-def get_test_data(data, args, overlap=1):  # overlap==0.5, seq_len=15
+def get_test_data(data, args, overlap=1): 
     # return splited train/val dataset
     seq_len = args.max_track_size
     overlap = overlap
@@ -74,8 +83,6 @@ def get_tracks(data, seq_len, observed_seq_len, overlap, args):
         d[k] = data[k]
 
     for k in d.keys():
-        # print(k, len(d[k]))
-        # frame/bbox/intention_binary/reason_feats
         tracks = []
         for track_id in range(len(d[k])):
             track = d[k][track_id]

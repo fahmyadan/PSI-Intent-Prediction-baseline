@@ -5,13 +5,14 @@ import torch
 import numpy as np
 import os
 import torch.nn.functional as F
+from torchvision.ops import sigmoid_focal_loss
 
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
 
-def train_intent(model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer):
+def train_intent(start_epoch, model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer):
     pos_weight = torch.tensor(args.intent_positive_weight).to(device) # n_neg_class_samples(5118)/n_pos_class_samples(11285)
     criterions = {
         'BCEWithLogitsLoss': torch.nn.BCEWithLogitsLoss(reduction='none', pos_weight=pos_weight).to(device),
@@ -21,7 +22,7 @@ def train_intent(model, optimizer, scheduler, train_loader, val_loader, args, re
     }
     epoch_loss = {'loss_intent': [], 'loss_traj': []}
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch + 1, args.epochs + 1):
         niters = len(train_loader)
         recorder.train_epoch_reset(epoch, niters)
         epoch_loss = train_intent_epoch(epoch, model, optimizer, criterions, epoch_loss, train_loader, args, recorder, writer)
@@ -42,8 +43,7 @@ def train_intent(model, optimizer, scheduler, train_loader, val_loader, args, re
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'scheduler_state_dict': scheduler.state_dict(),
-            # Any other items you want to save
-        }, args.checkpoint_path + f'/latest.pth')
+        }, os.path.join(args.checkpoint_path, f"epoch_{epoch}_checkpoint.pth"))
 
 
 def train_intent_epoch(epoch, model, optimizer, criterions, epoch_loss, dataloader, args, recorder, writer):
@@ -52,30 +52,33 @@ def train_intent_epoch(epoch, model, optimizer, criterions, epoch_loss, dataload
 
     niters = len(dataloader)
     for itern, data in enumerate(dataloader):
+        
         optimizer.zero_grad()
         intent_logit = model(data)
-        
         gt_intent_prob = data['intention_prob'][:, args.observe_length].type(FloatTensor).unsqueeze(1)
         loss_edl = edl_loss(torch.digamma, gt_intent_prob, intent_logit.unsqueeze(1), epoch, 5, device)
 
         gt_disagreement = data['disagree_score'][:, args.observe_length]
         gt_consensus = (1 - gt_disagreement).to(device)
         gt_intent = data['intention_binary'][:, args.observe_length].type(FloatTensor)
-        loss_intent = criterions['BCEWithLogitsLoss'](intent_logit , gt_intent)
-        
+        #loss_intent = criterions['BCEWithLogitsLoss'](intent_logit , gt_intent)
+        loss_intent = sigmoid_focal_loss(intent_logit, gt_intent, alpha=0.4, gamma=2, reduction='mean')
+
         loss_intent = torch.mean(torch.mul(gt_consensus, loss_intent))
         
-        loss = loss_intent + loss_edl*0.01
+        loss = loss_intent + loss_edl*0.1
         loss.backward()
         optimizer.step()
 
         # Record results
         batch_losses['loss'].append(loss.item())
         batch_losses['loss_intent'].append(loss_intent.item())
+        batch_losses['loss_edl'].append(loss_edl.item())
 
         if itern % args.print_freq == 0:
             print(f"Epoch {epoch}/{args.epochs} | Batch {itern}/{niters} - "
-                  f"loss_intent = {np.mean(batch_losses['loss_intent']): .4f}")
+                  f"loss_intent = {np.mean(batch_losses['loss_intent']): .4f} - "
+                  f"loss_edl = {np.mean(batch_losses['loss_edl']): .4f}")
         intent_prob = torch.sigmoid(intent_logit)
         recorder.train_intent_batch_update(itern, data, gt_intent.detach().cpu().numpy(),
                                            gt_intent_prob.detach().cpu().numpy(),
