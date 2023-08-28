@@ -40,7 +40,7 @@ class VideoDataset(torch.utils.data.Dataset):
         elif self.args.normalize_bbox == 'subtract_first_frame':
             bboxes = bboxes - bboxes[:1, :] # minus the first frame bbox positions
         data = {
-            # 'cropped_images': cropped_images,
+            'cropped_images': cropped_images,
             'images': images,
             'bboxes': bboxes,
             'intention_binary': intention_binary,
