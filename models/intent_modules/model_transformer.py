@@ -8,6 +8,8 @@ cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
 FloatTensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if cuda else torch.LongTensor
+from models.facenet_pytorch.models.inception_resnet_v1 import InceptionResnetV1
+
 
 class JointAttention(nn.Module):
     def __init__(self, feature_dim):
@@ -97,6 +99,21 @@ class ImageFeatureExtractor(nn.Module):
         x = self.resnet(x)
         x = x.view(batch_size, sequence_length, -1)
         return x
+    
+class FacialFeatureExtractor(nn.Module):
+    def __init__(self, *args, **kwargs) -> None:
+        super(FacialFeatureExtractor,self).__init__(*args, **kwargs)
+
+        self.incep_resnet = InceptionResnetV1(pretrained='vggface2').eval()
+        # self.incep_resnet.last_linear = nn.Identity()
+
+    def forward(self, x):
+        batch_size, sequence_length, C, H, W = x.size()
+        x = x.view(batch_size * sequence_length, C, H, W)
+        x = self.incep_resnet(x)
+        x = x.view(batch_size, sequence_length, -1)
+        return x
+
 
 class CrossingIntentPredictor(nn.Module):
     def __init__(self,):
@@ -114,6 +131,7 @@ class CrossingIntentPredictor(nn.Module):
         #self.image_feature_extractor = ImageFeatureExtractor()
         #self.image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
         self.whole_image_feature_extractor = ImageFeatureExtractor()
+        self.facial_embeddings = FacialFeatureExtractor()
         self.whole_image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
         self.description_transformer = TransformerEncoder(description_feature_size, d_model, nhead, num_layers, dim_feedforward)
         self.bbox_skeleton_transformer = TransformerEncoder(bbox_feature_size + skeleton_feature_size, d_model, nhead, num_layers, dim_feedforward)
@@ -124,6 +142,7 @@ class CrossingIntentPredictor(nn.Module):
         
     def forward(self, data):
         bbox = data['bboxes'][:, :self.observe_length, :].type(FloatTensor)
+        cropped_images =data['cropped_images'][:, :self.observe_length, :].type(FloatTensor)
         #images = data['cropped_images'][:, :self.observe_length, :].type(FloatTensor)
         skeleton = data['skeleton'][:, :self.observe_length, :].type(FloatTensor)
         skeleton = normalize_skeleton_based_on_bbox(skeleton, bbox)
@@ -135,6 +154,7 @@ class CrossingIntentPredictor(nn.Module):
         #image_features = self.image_transformer(image_features)
 
         whole_image_features = self.whole_image_feature_extractor(whole_images)
+        facial_embeddings =  self.facial_embeddings(cropped_images)
         whole_image_features = self.whole_image_transformer(whole_image_features)
         description_features = self.description_transformer(description)
         bbox_skeleton = torch.cat([bbox, skeleton], dim=-1)
