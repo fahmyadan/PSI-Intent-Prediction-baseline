@@ -41,6 +41,7 @@ def generate_data_sequence(set_name, database, args):
     disagree_score_seq = []
     skeleton_seq = []
     cropped_flow_seq = []
+    binaries = []
     video_ids = sorted(database.keys())
     for video in sorted(video_ids): # video_name: e.g., 'video_0001'
         print(video)
@@ -63,6 +64,7 @@ def generate_data_sequence(set_name, database, args):
             batch_size = 16
             num_batches = len(cropped_images_tensor) // batch_size + (1 if len(cropped_images_tensor) % batch_size else 0)
             all_keypoints = []
+            batch_binary = []
             
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * batch_size
@@ -72,15 +74,18 @@ def generate_data_sequence(set_name, database, args):
                 cropped_batch_list = cropped_img_list[start_idx:end_idx]
                 
                 facebox, face_prob = facenet.detect(cropped_batch_list, landmarks=False)
-                box_region = return_box_region(facebox, face_prob, cropped_images_batch)
-                vizualize_images(cropped_images_batch, box_region)
+                box_region, binary = return_box_region(facebox, face_prob, cropped_images_batch)
+                # vizualize_images(cropped_images_batch, box_region)
                 keypoints = pose_resnet(cropped_images_batch)
                 keypoints_tensor = extract_keypoints_from_heatmaps(keypoints) * 4
                 all_keypoints.append(keypoints_tensor.detach().cpu().numpy())
+                batch_binary.append(binary)
                 torch.cuda.empty_cache()
-                plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
+                # plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
             all_keypoints = np.concatenate(all_keypoints, axis=0)
+            all_binaries = torch.cat(batch_binary, dim=0).cpu().numpy()
             skeleton_seq.append(all_keypoints)
+            binaries.append(all_binaries)
     return {
         'frame': frame_seq,
         'bbox': box_seq,
@@ -90,7 +95,8 @@ def generate_data_sequence(set_name, database, args):
         'video_id': video_seq,
         'disagree_score': disagree_score_seq,
         'description': description_seq,
-        'skeleton' : skeleton_seq
+        'skeleton' : skeleton_seq, 
+        'face_binary': binaries,
     }
 
 
@@ -136,8 +142,6 @@ def vizualize_images(images, box_region):
     for i in range(images.shape[0]):
         # Plot the image and overlay the keypoints
         
-        if isinstance(box_region[i], np.ndarray):
-            print('check')
         
         x1,y1,x2,y2 = box_region[i]
         rect = Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1, edgecolor='r', facecolor='none')
@@ -155,14 +159,17 @@ def vizualize_images(images, box_region):
 
 def return_box_region(facebox, face_prob, imgs):
     box_region = []
+    binary = []
     for i in range(len(facebox)):
         if facebox[i] is None :
             h,w = imgs[i].shape[1], imgs[i].shape[2]
             default_box = [0,0,h,w]
             box_region.append(default_box)
+            binary.append(0)
         else:
             box_region.append(facebox[i][0])
-    return box_region
+            binary.append(1)
+    return box_region, torch.tensor(binary, dtype=float).to(device)
 
 def load_cropped_images(video_id, frame_list, bboxes, args):
     images_path = os.path.join(args.dataset_root_path, 'frames')
