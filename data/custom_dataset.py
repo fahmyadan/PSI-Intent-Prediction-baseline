@@ -6,12 +6,11 @@ import cv2
 import PIL
 from PIL import Image
 import copy
-from torchvideotransforms import video_transforms, volume_transforms
-import pdb
-
+from torchvideotransforms import video_transforms, volume_transforms, functional
+import random
 
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, data, args, stage='train'):
+    def __init__(self, data, args, stage):
         super(VideoDataset, self).__init__()
         self.data = data
         self.args = args
@@ -30,7 +29,7 @@ class VideoDataset(torch.utils.data.Dataset):
         disagree_score = self.data['disagree_score'][index] # all scores for all frames are returned
         description = self.data['description'][index] 
         skeleton = self.data['skeleton'][index] 
-        images, cropped_images, cropped_flows = self.load_images(video_ids, frame_list, bboxes)
+        images, cropped_images, cropped_flows, bboxes_aug = self.load_images(video_ids, frame_list, bboxes)
         data = {
             'cropped_images': cropped_images,
             'images': images,
@@ -38,12 +37,13 @@ class VideoDataset(torch.utils.data.Dataset):
             'intention_binary': intention_binary,
             'intention_prob': intention_prob,
             'frames': np.array([int(f) for f in frame_list]),
-            'video_id': video_ids[0], #int(video_id[0][0].split('_')[1])
+            'video_id': video_ids[0], 
             'ped_id': ped_ids[0],
             'disagree_score': disagree_score,
             'description':description,
             'skeleton': skeleton,
-            'cropped_flows': cropped_flows
+            'cropped_flows': cropped_flows,
+            'bboxes_aug': bboxes_aug
         }
 
         return data
@@ -56,6 +56,7 @@ class VideoDataset(torch.utils.data.Dataset):
         cropped_images = []
         video_name = video_ids[0]
         cropped_flows = []
+        bboxes_output = bboxes
         for i in range(len(frame_list)):
             frame_id = frame_list[i]
             bbox = bboxes[i]
@@ -81,10 +82,13 @@ class VideoDataset(torch.utils.data.Dataset):
             images.append(Image.fromarray(img))
             cropped_images.append(cropped_img)
             cropped_flows.append(cropped_flow) 
-
+        images, bboxes_output = apply_resize(images, bboxes_output, (224,398))
+        if self.stage == 'train':
+            images, bboxes_output = apply_random_resize(images, bboxes_output, (1.2,1))
+            images, bboxes_output = apply_random_crop(images, bboxes_output, (224,224))
         augmented_video_frames = self.transform(images)
         augmented_cropped_video_frames = self.cropped_transform(cropped_images)
-        return augmented_video_frames , augmented_cropped_video_frames, np.stack(cropped_flows, axis=0) # Time x Channel x H x W
+        return augmented_video_frames , augmented_cropped_video_frames, np.stack(cropped_flows, axis=0), bboxes_output # Time x Channel x H x W
 
 
     def rgb_loader(self, img_path):
@@ -96,9 +100,6 @@ class VideoDataset(torch.utils.data.Dataset):
         # You can add more video-specific transformations as needed
         if self.stage == 'train':
             video_transform_list = [
-                video_transforms.Resize((224, 398)),
-                video_transforms.RandomResize((1.1, 1)),
-                video_transforms.RandomCrop((224, 224)),  # Or any other desired size
                 video_transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
                 volume_transforms.ClipToTensor(),
                 video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -115,7 +116,6 @@ class VideoDataset(torch.utils.data.Dataset):
         else:
             # For validation/testing, you might want to have deterministic transformations
             video_transform_list = [
-                video_transforms.Resize((224, 398)),
                 video_transforms.CenterCrop((224, 224)),
                 volume_transforms.ClipToTensor(),
                 video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -152,8 +152,6 @@ class VideoDataset(torch.utils.data.Dataset):
         if mode == 'same':
             return bbox
 
-        # img = self.rgb_loader(img_path)
-        # img_width, img_heigth = img.size
 
         if mode in ['random_enlarge', 'enlarge']:
             jitter_ratio = abs(ratio)
@@ -163,9 +161,6 @@ class VideoDataset(torch.utils.data.Dataset):
         if mode == 'random_enlarge':
             jitter_ratio = np.random.random_sample() * jitter_ratio
         elif mode == 'random_move':
-            # for ratio between (-jitter_ratio, jitter_ratio)
-            # for sampling the formula is [a,b), b > a,
-            # random_sample * (b-a) + a
             jitter_ratio = np.random.random_sample() * jitter_ratio * 2 - jitter_ratio
 
         jit_boxes = []
@@ -216,8 +211,6 @@ class VideoDataset(torch.utils.data.Dataset):
         if mode == 'pad_resize' or \
                 (mode == 'pad_fit' and (img_size[0] > size or img_size[1] > size)):
             img_size = (int(img_size[0] * ratio), int(img_size[1] * ratio))# tuple([int(img_size[0] * ratio), int(img_size[1] * ratio)])
-            # print(img_size, type(img_size), type(img_size[0]), type(img_size[1]))
-            # print(type(image), image.shape)
             image = Image.fromarray(image)
             image = image.resize(img_size, PIL.Image.NEAREST)
         if type == 'image':
@@ -227,3 +220,54 @@ class VideoDataset(torch.utils.data.Dataset):
         padded_image.paste(image, ((size - img_size[0]) // 2,
                                     (size - img_size[1]) // 2))
         return padded_image
+
+def apply_random_crop(image, bbox, crop_size):
+    im_w, im_h = image[0].size
+    h, w = crop_size
+    # Random 
+    x1 = random.randint(0, im_w - w)
+    y1 = random.randint(0, im_h - h)
+    cropped_image = functional.crop_clip(image, y1, x1, h, w)
+    bbox = np.array(bbox)
+    resized_bbox = np.zeros_like(bbox)
+    resized_bbox[:, 0] = np.maximum(0, bbox[:, 0] - x1)
+    resized_bbox[:, 1] = np.maximum(0, bbox[:, 1] - y1)
+    resized_bbox[:, 2] = np.minimum(w, bbox[:, 2] - x1)
+    resized_bbox[:, 3] = np.minimum(h, bbox[:, 3] - y1)
+    return cropped_image, resized_bbox
+
+def apply_random_resize(image, bbox, ratio=(3./4., 4./3.)):
+    im_w, im_h = image[0].size
+
+    scaling_factor = random.uniform(ratio[0], ratio[1])
+    new_w = int(im_w * scaling_factor)
+    new_h = int(im_h * scaling_factor)
+    new_size = (new_w, new_h)
+    resized_image = functional.resize_clip(
+            image, new_size, interpolation='bilinear')
+    x_scale = new_w / im_w
+    y_scale = new_h / im_h
+    bbox = np.array(bbox)
+    resized_bbox = np.zeros_like(bbox)
+    resized_bbox[:, 0] = bbox[:, 0] * x_scale
+    resized_bbox[:, 1] = bbox[:, 1] * y_scale
+    resized_bbox[:, 2] = bbox[:, 2] * x_scale
+    resized_bbox[:, 3] = bbox[:, 3] * y_scale
+
+    return resized_image, resized_bbox
+
+def apply_resize(image, bbox, size=(224, 398)):
+    im_w, im_h = image[0].size
+
+    resized_image = functional.resize_clip(
+            image, size, interpolation='bilinear')
+    x_scale = size[1] / im_w
+    y_scale = size[0] / im_h
+    bbox = np.array(bbox)
+    resized_bbox = np.zeros_like(bbox)
+    resized_bbox[:, 0] = bbox[:, 0] * x_scale
+    resized_bbox[:, 1] = bbox[:, 1] * y_scale
+    resized_bbox[:, 2] = bbox[:, 2] * x_scale
+    resized_bbox[:, 3] = bbox[:, 3] * y_scale
+
+    return resized_image, resized_bbox
