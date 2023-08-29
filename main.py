@@ -38,7 +38,7 @@ def main(args):
     model = nn.DataParallel(model)
     start_epoch = 0
     if args.continue_learning:
-        model, optimizer, scheduler, start_epoch = load_checkpoint(model, optimizer, scheduler, '/home/drisk/PSI/ckpts/ped_intent/PSI2.0/transformer/20230825211130/epoch_2_checkpoint.pth')
+        model, optimizer, scheduler, start_epoch = load_checkpoint(model, optimizer, scheduler, '/home/drisk/PSI/ckpts/ped_intent/PSI2.0/transformer/20230827161421/epoch_1_checkpoint.pth')
 
     # ''' 3. Train '''
     train_intent(start_epoch, model, optimizer, scheduler, train_loader, val_loader, args, recorder, writer)
@@ -51,12 +51,12 @@ def main(args):
     predict_intent(model, val_loader, args, dset='val')
     evaluate_intent(val_gt_file, args.checkpoint_path + '/results/val_intent_pred.json', args)
     
-    # ''' 4. Test '''
-    test_gt_file = './test_gt/test_intent_gt.json'
-    if not os.path.exists(test_gt_file):
-        get_intent_gt(test_loader, test_gt_file, args)
-    predict_intent(model, test_loader, args, dset='test')
-    evaluate_intent(test_gt_file, args.checkpoint_path + '/results/test_intent_pred.json', args)
+    # # ''' 4. Test '''
+    # test_gt_file = './test_gt/test_intent_gt.json'
+    # if not os.path.exists(test_gt_file):
+    #     get_intent_gt(test_loader, test_gt_file, args)
+    # predict_intent(model, test_loader, args, dset='test')
+    # evaluate_intent(test_gt_file, args.checkpoint_path + '/results/test_intent_pred.json', args)
 
 if __name__ == '__main__':
     args = get_opts()
@@ -65,10 +65,6 @@ if __name__ == '__main__':
     args.dataset = 'PSI2.0'
     if args.dataset == 'PSI2.0':
         args.video_splits = os.path.join(args.dataset_root_path, 'PSI2.0_TrainVal/splits/PSI2_split.json')
-    elif args.dataset == 'PSI1.0':
-        args.video_splits = os.path.join(args.dataset_root_path, 'PSI1.0/splits/PSI1_split.json')
-    else:
-        raise Exception("Unknown dataset name!")
 
 
     # Task
@@ -112,7 +108,7 @@ if __name__ == '__main__':
 
     # Train
     args.epochs = 20
-    args.batch_size = 8
+    args.batch_size = 12
     args.lr = 1e-3
     args.loss_weights = {
         'loss_intent': 1.0,

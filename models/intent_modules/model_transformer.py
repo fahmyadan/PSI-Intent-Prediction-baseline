@@ -176,17 +176,17 @@ class CrossingIntentPredictor(nn.Module):
         description_feature_size = 768
         bbox_feature_size = 4
         skeleton_feature_size = 32
-        d_model = 16
+        d_model = 32
         nhead = 4
         num_layers = 2
-        dim_feedforward = 32
-        flow_map_feature_size = 16
+        dim_feedforward = 64
+        flow_map_feature_size = 32
 
         self.image_feature_extractor = ImageFeatureExtractor()
         self.optical_flow_feature_extractor = OpticalFlowFeatureExtractor(flow_map_feature_size)
 
         self.whole_image_transformer = TransformerEncoder(image_feature_size+bbox_feature_size, d_model, nhead, num_layers, dim_feedforward)
-        self.bbox_skeleton_flow_transformer = TransformerEncoder(image_feature_size + skeleton_feature_size + flow_map_feature_size, d_model, nhead, num_layers, dim_feedforward)
+        self.bbox_skeleton_flow_transformer = TransformerEncoder(image_feature_size + flow_map_feature_size, d_model, nhead, num_layers, dim_feedforward)
 
         self.multihead_attention_1 = MultiHeadSelfAttention(d_model, nhead)
         self.multihead_attention_2 = MultiHeadSelfAttention(d_model, nhead)
@@ -202,18 +202,18 @@ class CrossingIntentPredictor(nn.Module):
     def forward(self, data):
         bbox = data['bboxes_aug'][:, :self.observe_length, :].type(FloatTensor)
         images = data['cropped_images'][:, :self.observe_length, :].type(FloatTensor).permute(0, 2, 1, 3, 4)
-        skeleton = data['skeleton'][:, :self.observe_length, :].type(FloatTensor)
+        # skeleton = data['skeleton'][:, :self.observe_length, :].type(FloatTensor)
         whole_images = data['images'][:, :self.observe_length, :].type(FloatTensor).permute(0, 2, 1, 3, 4)
         flow_map = data['cropped_flows'][:, :self.observe_length, :].type(FloatTensor)
 
-        skeleton = normalize_skeleton(skeleton, images)
-        skeleton = skeleton.view(skeleton.shape[0], self.observe_length, -1)
+        # skeleton = normalize_skeleton(skeleton, images)
+        # skeleton = skeleton.view(skeleton.shape[0], self.observe_length, -1)
         bbox = normalize_bbox(bbox, whole_images)
 
         image_features = self.image_feature_extractor(images)
         whole_image_features = self.image_feature_extractor(whole_images)
         flow_map = self.optical_flow_feature_extractor(flow_map)
-        cropped_skeleton_flow = torch.cat([image_features, skeleton, flow_map], dim=-1)
+        cropped_skeleton_flow = torch.cat([image_features, flow_map], dim=-1)
         image_bbox = torch.cat([whole_image_features, bbox], dim=-1)
 
         whole_image_features = self.whole_image_transformer(image_bbox)
@@ -232,7 +232,7 @@ class CrossingIntentPredictor(nn.Module):
 
     def build_optimizer(self):
         backbone_lr = 1e-5
-        transformer_lr = 2e-4
+        transformer_lr = 5e-4
 
         backbone_parameters = list(self.image_feature_extractor.resnet.parameters())
         backbone_param_ids = {id(p): True for p in backbone_parameters}
@@ -262,10 +262,10 @@ def normalize_bbox(bbox, images):
     return normalized_bbox
 
 def normalize_skeleton(skeleton, images):
-    adjusted_x, adjusted_y = skeleton[..., 0], skeleton[..., 1]
+    x, y = skeleton[..., 0], skeleton[..., 1]
     image_w = images.shape[3]
     image_h = images.shape[4]
-    normalized_x = adjusted_x / image_w
-    normalized_y = adjusted_y / image_h
+    normalized_x = x / image_w
+    normalized_y = y / image_h
     normalized_skeleton = torch.stack([normalized_x, normalized_y], dim=-1)
     return normalized_skeleton

@@ -4,7 +4,6 @@ import os
 import pdb
 import cv2
 from data.custom_dataset import VideoDataset
-from sentence_transformers import SentenceTransformer
 import torch
 from torchvision import transforms
 import PIL
@@ -16,9 +15,7 @@ from torchvision.models.optical_flow import raft_large, Raft_Large_Weights, raft
 from torchvision.transforms import functional as F
 import torch.nn.functional as tF
 from models.pose_resnet import get_pose_net
-model = SentenceTransformer('all-mpnet-base-v2')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = model.to(device)
 
 POSE_RESNET_PATH = '/home/drisk/Downloads/pose_resnet_152_256x256.pth'
 pose_resnet = get_pose_net(num_layers=152, init_weights=True, pretrained=POSE_RESNET_PATH)
@@ -34,7 +31,6 @@ def generate_data_sequence(set_name, database, args):
     pids_seq = []
     video_seq = []
     box_seq = []
-    description_seq = []
     disagree_score_seq = []
     skeleton_seq = []
     cropped_flow_seq = []
@@ -48,11 +44,11 @@ def generate_data_sequence(set_name, database, args):
             n = len(database[video][ped]['frames'])
             pids_seq.append([ped] * n)
             video_seq.append([video] * n)
-            intents, probs, disgrs, descripts = get_intent(database, video, ped, args)
+            intents, probs, disgrs = get_intent(database, video, ped, args)
             intention_prob.append(probs)
             intention_binary.append(intents)
             disagree_score_seq.append(disgrs)
-            description_seq.append(descripts)
+
 
             cropped_images_tensor = load_cropped_images(video, database[video][ped]['frames'], database[video][ped]['cv_annotations']['bbox'], args)
             cropped_flow_seq.append
@@ -69,7 +65,7 @@ def generate_data_sequence(set_name, database, args):
                 keypoints_tensor = extract_keypoints_from_heatmaps(keypoints) * 4
                 all_keypoints.append(keypoints_tensor.detach().cpu().numpy())
                 torch.cuda.empty_cache()
-                #plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
+                plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
             all_keypoints = np.concatenate(all_keypoints, axis=0)
             skeleton_seq.append(all_keypoints)
     return {
@@ -80,7 +76,6 @@ def generate_data_sequence(set_name, database, args):
         'ped_id': pids_seq,
         'video_id': video_seq,
         'disagree_score': disagree_score_seq,
-        'description': description_seq,
         'skeleton' : skeleton_seq
     }
 
@@ -115,14 +110,8 @@ def get_intent(database, video_name, ped_id, args):
         intent_seq.append(intent_binary)
         disagree_score = sum([1 if lbl != intent_binary else 0 for lbl in labels]) / n_users
         disagree_seq.append(disagree_score)
-        descriptions = ''.join(descriptions)
-        if descriptions.strip():  # Check if the description is not an empty string
-            with torch.no_grad(): 
-                embeddings = model.encode(descriptions, convert_to_tensor=True, device=device)
-            description_seq.append(embeddings.cpu().numpy())
-        else:
-            description_seq.append(np.zeros(768))
-    return intent_seq, prob_seq, disagree_seq, description_seq
+
+    return intent_seq, prob_seq, disagree_seq, 
 
 def load_cropped_images(video_id, frame_list, bboxes, args):
     images_path = os.path.join(args.dataset_root_path, 'frames')
@@ -143,10 +132,30 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
         bbox = squarify(bbox, 1, img.shape[1])
         bbox = list(map(int, bbox[0:4]))
 
-        cropped_img = Image.fromarray(img).crop(bbox)
-        cropped_img = np.array(cropped_img)
-        cropped_img = img_pad(cropped_img, mode='pad_resize')
-        cropped_img = np.array(cropped_img)
+        # cropped_img = Image.fromarray(img).crop(bbox)
+        # cropped_img = np.array(cropped_img)
+        # cropped_img = img_pad(cropped_img, mode='pad_resize')
+        # cropped_img = np.array(cropped_img)
+        center_x = (bbox[0] + bbox[2]) // 2
+        center_y = (bbox[1] + bbox[3]) // 2
+        target_width = 224
+        target_height = 224
+        # Calculate the cropping box
+        crop_x1 = max(center_x - target_width // 2, 0)
+        crop_x2 = min(center_x + target_width // 2, img.shape[1])
+        crop_y1 = max(center_y - target_height // 2, 0)
+        crop_y2 = min(center_y + target_height // 2, img.shape[0])
+
+        cropped_img = img[crop_y1:crop_y2, crop_x1:crop_x2]
+
+        # Create a blank black image
+        blank_image = np.zeros((target_height, target_width, 3), np.uint8)
+        
+        # Calculate the position to paste the cropped image onto the blank image
+        paste_x1 = max(target_width // 2 - center_x, 0)
+        paste_y1 = max(target_height // 2 - center_y, 0)
+        
+        blank_image[paste_y1:paste_y1+cropped_img.shape[0], paste_x1:paste_x1+cropped_img.shape[1]] = cropped_img
 
         transform = transforms.Compose([
             transforms.ToPILImage(),
@@ -155,7 +164,7 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
                                  std=[0.229, 0.224, 0.225])
         ])
         
-        cropped_img = transform(cropped_img)
+        cropped_img = transform(blank_image)
         cropped_images.append(cropped_img)
         
         # if i != len(frame_list) - 1:

@@ -94,7 +94,7 @@ if __name__ == '__main__':
 
 
     # Model
-    args.model_name = 'lstmed_traj_bbox'  # LSTM module, with bboxes sequence as input, to predict intent
+    args.model_name = 'traj_transformer'  # LSTM module, with bboxes sequence as input, to predict intent
     args.load_image = False # only bbox sequence as input
 
     if args.load_image:
@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     # Train
     args.epochs = 100
-    args.batch_size = 128
+    args.batch_size = 12
     if args.task_name == 'ped_traj':
         args.lr = 1e-2
     elif args.task_name == 'ped_intent':

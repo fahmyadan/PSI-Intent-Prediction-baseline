@@ -35,11 +35,11 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     test_d = get_test_data(test_seq, args, overlap=1)
 
     # Create video dataset and dataloader
-    train_dataset = VideoDataset(train_d, args)
-    val_dataset = VideoDataset(val_d, args)
-    test_dataset = VideoDataset(test_d, args)
+    train_dataset = VideoDataset(train_d, args, stage='train')
+    val_dataset = VideoDataset(val_d, args, stage='val')
+    test_dataset = VideoDataset(test_d, args, stage='test')
     # Create a WeightedRandomSampler
-    portion = 1/3
+    portion = 1/5
     num_samples = int(len(train_dataset) * portion)
 
     sampler = WeightedRandomSampler([1.35682197] * len(train_dataset), num_samples, replacement=False)
@@ -48,9 +48,9 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     # Use the sampler in your DataLoader
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, # Set shuffle to False
                                             sampler=sampler, pin_memory=True, drop_last=drop_last_train, num_workers=4)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=4, shuffle=False,
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=8, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=4, shuffle=False,
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=8, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
     return train_loader, val_loader, test_loader
 
@@ -63,7 +63,6 @@ def get_train_val_data(data, args, overlap=0.5):
 
 
 def get_test_data(data, args, overlap=1): 
-    # return splited train/val dataset
     seq_len = args.max_track_size
     overlap = overlap
     tracks = get_tracks(data, seq_len, args.observe_length, overlap, args)

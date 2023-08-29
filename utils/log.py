@@ -309,7 +309,7 @@ class RecordResults():
         self.ped_list.extend(data['ped_id'])
         # (3.1) loss log list
         bs, ts, dim = traj_gt.shape # bs x 45 x 4
-        self.traj_ori_gt.extend(data['original_bboxes'].detach().cpu().numpy())
+        self.traj_ori_gt.extend(data['bboxes'].detach().cpu().numpy())
 
         if traj_pred != []:
             self.traj_gt.extend(traj_gt)  # bs x pred_seq(45) x 4

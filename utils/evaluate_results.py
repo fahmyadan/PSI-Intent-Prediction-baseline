@@ -15,7 +15,7 @@ def evaluate_intent(groundtruth='', prediction='', args=None):
         for pid in gt_intent[vid].keys():
             for fid in gt_intent[vid][pid].keys():
                 gt.append(gt_intent[vid][pid][fid]['intent'])
-                pred.append(pred_intent[vid][pid][fid]['intent_pred'])
+                pred.append(pred_intent[vid][pid][fid]['intent'])
     gt = np.array(gt)
     pred = np.array(pred)
     res = measure_intent_prediction(gt, pred, args)

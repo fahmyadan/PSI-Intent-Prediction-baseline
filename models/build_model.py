@@ -4,6 +4,7 @@ import os
 from .intent_modules.model_lstm_int_bbox import LSTMIntBbox
 from .intent_modules.model_transformer import CrossingIntentPredictor
 from .traj_modules.model_lstmed_traj_bbox import LSTMedTrajBbox
+from .traj_modules.model_transformer_traj import TrajectoryPredictor
 
 cuda = True if torch.cuda.is_available() else False
 device = torch.device("cuda:0" if cuda else "cpu")
@@ -28,7 +29,10 @@ def build_model(args):
         model = get_transformer().to(device)
         optimizer, scheduler = model.build_optimizer()
         return model, optimizer, scheduler
-
+    elif args.model_name == 'traj_transformer':
+        model = get_traj_transformer().to(device)
+        optimizer, scheduler = model.build_optimizer()
+        return model, optimizer, scheduler
 # 1. Intent prediction
 # 1.1 input bboxes only
 def get_lstm_intent_bbox(args):
@@ -95,3 +99,6 @@ def get_lstm_driving_global(args):
 
 def get_transformer():
     return CrossingIntentPredictor()
+
+def get_traj_transformer():
+    return TrajectoryPredictor()

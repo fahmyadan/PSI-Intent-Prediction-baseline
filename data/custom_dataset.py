@@ -18,7 +18,7 @@ class VideoDataset(torch.utils.data.Dataset):
         self.set_transform()
         self.images_path = os.path.join(args.dataset_root_path, 'frames')
         self.flow_path = os.path.join(self.args.dataset_root_path, 'flow')
-
+        self.save_index = 0
     def __getitem__(self, index):
         video_ids = self.data['video_id'][index]
         ped_ids = self.data['ped_id'][index]
@@ -27,7 +27,6 @@ class VideoDataset(torch.utils.data.Dataset):
         intention_binary = self.data['intention_binary'][index] # all frames intentions are returned
         intention_prob = self.data['intention_prob'][index] # all frames, 3-dimension votes probability
         disagree_score = self.data['disagree_score'][index] # all scores for all frames are returned
-        description = self.data['description'][index] 
         skeleton = self.data['skeleton'][index] 
         images, cropped_images, cropped_flows, bboxes_aug = self.load_images(video_ids, frame_list, bboxes)
         data = {
@@ -40,7 +39,6 @@ class VideoDataset(torch.utils.data.Dataset):
             'video_id': video_ids[0], 
             'ped_id': ped_ids[0],
             'disagree_score': disagree_score,
-            'description':description,
             'skeleton': skeleton,
             'cropped_flows': cropped_flows,
             'bboxes_aug': bboxes_aug
@@ -83,11 +81,15 @@ class VideoDataset(torch.utils.data.Dataset):
             cropped_images.append(cropped_img)
             cropped_flows.append(cropped_flow) 
         images, bboxes_output = apply_resize(images, bboxes_output, (224,398))
+
+
         if self.stage == 'train':
             images, bboxes_output = apply_random_resize(images, bboxes_output, (1.2,1))
             images, bboxes_output = apply_random_crop(images, bboxes_output, (224,224))
+
         augmented_video_frames = self.transform(images)
         augmented_cropped_video_frames = self.cropped_transform(cropped_images)
+
         return augmented_video_frames , augmented_cropped_video_frames, np.stack(cropped_flows, axis=0), bboxes_output # Time x Channel x H x W
 
 
@@ -242,7 +244,7 @@ def apply_random_resize(image, bbox, ratio=(3./4., 4./3.)):
     scaling_factor = random.uniform(ratio[0], ratio[1])
     new_w = int(im_w * scaling_factor)
     new_h = int(im_h * scaling_factor)
-    new_size = (new_w, new_h)
+    new_size = (new_h, new_w)
     resized_image = functional.resize_clip(
             image, new_size, interpolation='bilinear')
     x_scale = new_w / im_w
