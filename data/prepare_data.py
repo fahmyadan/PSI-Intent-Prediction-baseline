@@ -9,27 +9,27 @@ import pdb
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
 def get_dataloader(args, shuffle_train=True, drop_last_train=True):
-    # with open(os.path.join(args.database_path, 'intent_database_train.pkl'), 'rb') as fid:
-    #     imdb_train = pickle.load(fid)
-    # train_seq = generate_data_sequence('train', imdb_train, args)
-    # with open(os.path.join(args.database_path, 'intent_database_val.pkl'), 'rb') as fid:
-    #     imdb_val = pickle.load(fid)
-    # val_seq = generate_data_sequence('val', imdb_val, args)
-    # with open(os.path.join(args.database_path, 'intent_database_test.pkl'), 'rb') as fid:
-    #     imdb_test = pickle.load(fid)
-    # test_seq = generate_data_sequence('test', imdb_test, args)
-    # with open('database/train_seq.pkl', 'wb') as f:
-    #     pickle.dump(train_seq, f)
-    # with open('database/val_seq.pkl', 'wb') as f:
-    #     pickle.dump(val_seq, f)
-    # with open('database/test_seq.pkl', 'wb') as f:
-    #     pickle.dump(test_seq, f)
-    with open('database/train_seq.pkl', 'rb') as f:
-        train_seq = pickle.load(f)
-    with open('database/val_seq.pkl', 'rb') as f:
-        val_seq = pickle.load(f)
-    with open('database/test_seq.pkl', 'rb') as f:
-        test_seq = pickle.load(f)
+    with open(os.path.join(args.database_path, 'intent_database_train.pkl'), 'rb') as fid:
+        imdb_train = pickle.load(fid)
+    train_seq = generate_data_sequence('train', imdb_train, args)
+    with open(os.path.join(args.database_path, 'intent_database_val.pkl'), 'rb') as fid:
+        imdb_val = pickle.load(fid)
+    val_seq = generate_data_sequence('val', imdb_val, args)
+    with open(os.path.join(args.database_path, 'intent_database_test.pkl'), 'rb') as fid:
+        imdb_test = pickle.load(fid)
+    test_seq = generate_data_sequence('test', imdb_test, args)
+    with open('database/train_seq.pkl', 'wb') as f:
+        pickle.dump(train_seq, f)
+    with open('database/val_seq.pkl', 'wb') as f:
+        pickle.dump(val_seq, f)
+    with open('database/test_seq.pkl', 'wb') as f:
+        pickle.dump(test_seq, f)
+    # with open('database/train_seq.pkl', 'rb') as f:
+    #     train_seq = pickle.load(f)
+    # with open('database/val_seq.pkl', 'rb') as f:
+    #     val_seq = pickle.load(f)
+    # with open('database/test_seq.pkl', 'rb') as f:
+    #     test_seq = pickle.load(f)
     train_d = get_train_val_data(train_seq, args, overlap=1) # returned tracks
     val_d = get_train_val_data(val_seq, args, overlap=1)
     test_d = get_test_data(test_seq, args, overlap=1)
