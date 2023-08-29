@@ -68,7 +68,6 @@ class MultiHeadSelfAttention(nn.Module):
         N = queries.shape[0]
         value_len, key_len, query_len = values.shape[1], keys.shape[1], queries.shape[1]
 
-        # Split the embedding into self.heads different pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim)
         queries = queries.reshape(N, query_len, self.heads, self.head_dim)
@@ -77,7 +76,6 @@ class MultiHeadSelfAttention(nn.Module):
         keys = self.keys(keys)
         queries = self.queries(queries)
 
-        # Scaled dot-product attention
         energy = torch.einsum("nqhd,nkhd->nhqk", [queries, keys])
         if mask is not None:
             energy = energy.masked_fill(mask == 0, float("-1e20"))
@@ -185,18 +183,18 @@ class CrossingIntentPredictor(nn.Module):
         flow_map_feature_size = 16
 
         self.image_feature_extractor = ImageFeatureExtractor()
-        self.image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
         self.optical_flow_feature_extractor = OpticalFlowFeatureExtractor(flow_map_feature_size)
-        self.whole_image_transformer = TransformerEncoder(image_feature_size, d_model, nhead, num_layers, dim_feedforward)
-        self.description_compression = nn.Sequential(
-                                        nn.Linear(description_feature_size, 64),
-                                        nn.ReLU(),
-                                        nn.Linear(64, d_model))      
-        self.bbox_skeleton_transformer = TransformerEncoder(skeleton_feature_size + flow_map_feature_size + bbox_feature_size, d_model, nhead, num_layers, dim_feedforward)
-        self.joint_attention = FeatureTemporalAttention(d_model * 3)
-        self.batch_norm = nn.BatchNorm1d(d_model * 3) 
+
+        self.whole_image_transformer = TransformerEncoder(image_feature_size+bbox_feature_size, d_model, nhead, num_layers, dim_feedforward)
+        self.bbox_skeleton_flow_transformer = TransformerEncoder(image_feature_size + skeleton_feature_size + flow_map_feature_size, d_model, nhead, num_layers, dim_feedforward)
+
+        self.multihead_attention_1 = MultiHeadSelfAttention(d_model, nhead)
+        self.multihead_attention_2 = MultiHeadSelfAttention(d_model, nhead)
+
+        self.joint_attention = FeatureTemporalAttention(d_model * 2)
+        self.batch_norm = nn.BatchNorm1d(d_model * 2) 
         self.fc = nn.Sequential(
-            nn.Linear(d_model * 3, 16),
+            nn.Linear(d_model * 2, 16),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(16, 1))
@@ -205,25 +203,31 @@ class CrossingIntentPredictor(nn.Module):
         bbox = data['bboxes_aug'][:, :self.observe_length, :].type(FloatTensor)
         images = data['cropped_images'][:, :self.observe_length, :].type(FloatTensor).permute(0, 2, 1, 3, 4)
         skeleton = data['skeleton'][:, :self.observe_length, :].type(FloatTensor)
-        skeleton = normalize_skeleton_based_on_bbox(skeleton, bbox)
-        bbox = normalize_bbox(bbox, images)
-        skeleton = skeleton.view(skeleton.shape[0], self.observe_length, -1)
         whole_images = data['images'][:, :self.observe_length, :].type(FloatTensor).permute(0, 2, 1, 3, 4)
         flow_map = data['cropped_flows'][:, :self.observe_length, :].type(FloatTensor)
-        image_features = self.image_feature_extractor(images)
-        image_features = self.image_transformer(image_features)
-        whole_image_features = self.image_feature_extractor(whole_images)
-        whole_image_features = self.whole_image_transformer(whole_image_features)
-        flow_map = self.optical_flow_feature_extractor(flow_map)
-        bbox_skeleton_flow = torch.cat([skeleton, bbox, flow_map], dim=-1)
-        bbox_skeleton_flow_features = self.bbox_skeleton_transformer(bbox_skeleton_flow)
 
-        combined_features = torch.cat([image_features, whole_image_features, 
-                                    bbox_skeleton_flow_features], dim=2)
+        skeleton = normalize_skeleton(skeleton, images)
+        skeleton = skeleton.view(skeleton.shape[0], self.observe_length, -1)
+        bbox = normalize_bbox(bbox, whole_images)
+
+        image_features = self.image_feature_extractor(images)
+        whole_image_features = self.image_feature_extractor(whole_images)
+        flow_map = self.optical_flow_feature_extractor(flow_map)
+        cropped_skeleton_flow = torch.cat([image_features, skeleton, flow_map], dim=-1)
+        image_bbox = torch.cat([whole_image_features, bbox], dim=-1)
+
+        whole_image_features = self.whole_image_transformer(image_bbox)
+        bbox_skeleton_flow_features = self.bbox_skeleton_flow_transformer(cropped_skeleton_flow)
+
+        attention_output_1 = self.multihead_attention_1(values=bbox_skeleton_flow_features, keys=bbox_skeleton_flow_features, queries=bbox_skeleton_flow_features, mask=None)
+        attention_output_2 = self.multihead_attention_2(values=whole_image_features, keys=whole_image_features, queries=whole_image_features, mask=None)
+
+        combined_features = torch.cat([attention_output_1, 
+                                    attention_output_2], dim=2)
         context_vectors = self.joint_attention(combined_features)
         context_vectors = context_vectors[:,-1,:]
-
         output = self.fc(self.batch_norm(context_vectors))
+
         return output.squeeze()
 
     def build_optimizer(self):
@@ -257,10 +261,11 @@ def normalize_bbox(bbox, images):
     normalized_bbox = torch.stack([normalized_x, normalized_y, normalized_w, normalized_h], dim=-1)
     return normalized_bbox
 
-def normalize_skeleton_based_on_bbox(skeleton, bbox):
-    adjusted_x = skeleton[..., 0] + bbox[..., 0].unsqueeze(-1)
-    adjusted_y = skeleton[..., 1] + bbox[..., 1].unsqueeze(-1)
-    normalized_x = adjusted_x / 1280
-    normalized_y = adjusted_y / 720
+def normalize_skeleton(skeleton, images):
+    adjusted_x, adjusted_y = skeleton[..., 0], skeleton[..., 1]
+    image_w = images.shape[3]
+    image_h = images.shape[4]
+    normalized_x = adjusted_x / image_w
+    normalized_y = adjusted_y / image_h
     normalized_skeleton = torch.stack([normalized_x, normalized_y], dim=-1)
     return normalized_skeleton
