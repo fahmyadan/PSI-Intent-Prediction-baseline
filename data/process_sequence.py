@@ -9,6 +9,7 @@ import torch
 from torchvision import transforms
 import PIL
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from PIL import Image
 import os
 from torchvision.utils import flow_to_image
@@ -16,17 +17,19 @@ from torchvision.models.optical_flow import raft_large, Raft_Large_Weights, raft
 from torchvision.transforms import functional as F
 import torch.nn.functional as tF
 from models.pose_resnet import get_pose_net
+from models.facenet.mtcnn import MTCNN
 model = SentenceTransformer('all-mpnet-base-v2')
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = model.to(device)
 
-POSE_RESNET_PATH = '/home/drisk/Downloads/pose_resnet_152_256x256.pth'
+POSE_RESNET_PATH = '/home/fahmy/Projects/PhD/pedestrian_prediction/ITSS-PSI/PSI-Intent-Prediction-baseline/ckpts/ped_intent/pose_resnet_152_256x256.pth'
 pose_resnet = get_pose_net(num_layers=152, init_weights=True, pretrained=POSE_RESNET_PATH)
 pose_resnet = pose_resnet.to(device)
 pose_resnet.eval()
 # raft = raft_large(weights=Raft_Large_Weights.DEFAULT, progress=False).to(device)
 # raft.eval()
-
+facenet = MTCNN(image_size=224, margin=0, thresholds=[0.2,0.3,0.4] ,keep_all=True, device=device)
+facenet.eval()
 def generate_data_sequence(set_name, database, args):
     intention_prob = []
     intention_binary = []
@@ -53,23 +56,29 @@ def generate_data_sequence(set_name, database, args):
             intention_binary.append(intents)
             disagree_score_seq.append(disgrs)
             description_seq.append(descripts)
-
-            cropped_images_tensor = load_cropped_images(video, database[video][ped]['frames'], database[video][ped]['cv_annotations']['bbox'], args)
+            args.crop_mode = 'same'
+            cropped_images_tensor, cropped_img_list = load_cropped_images(video, database[video][ped]['frames'], database[video][ped]['cv_annotations']['bbox'], args)
             cropped_flow_seq.append
-            batch_size = 64
+
+            batch_size = 16
             num_batches = len(cropped_images_tensor) // batch_size + (1 if len(cropped_images_tensor) % batch_size else 0)
             all_keypoints = []
             
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * batch_size
                 end_idx = start_idx + batch_size
-                
+
                 cropped_images_batch = cropped_images_tensor[start_idx:end_idx].to(device)
+                cropped_batch_list = cropped_img_list[start_idx:end_idx]
+                
+                facebox, face_prob = facenet.detect(cropped_batch_list, landmarks=False)
+                box_region = return_box_region(facebox, face_prob, cropped_images_batch)
+                vizualize_images(cropped_images_batch, box_region)
                 keypoints = pose_resnet(cropped_images_batch)
                 keypoints_tensor = extract_keypoints_from_heatmaps(keypoints) * 4
                 all_keypoints.append(keypoints_tensor.detach().cpu().numpy())
                 torch.cuda.empty_cache()
-                #plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
+                plot_image_and_keypoints(cropped_images_batch[0], keypoints_tensor[0])
             all_keypoints = np.concatenate(all_keypoints, axis=0)
             skeleton_seq.append(all_keypoints)
     return {
@@ -123,6 +132,37 @@ def get_intent(database, video_name, ped_id, args):
         else:
             description_seq.append(np.zeros(768))
     return intent_seq, prob_seq, disagree_seq, description_seq
+def vizualize_images(images, box_region):
+    for i in range(images.shape[0]):
+        # Plot the image and overlay the keypoints
+        
+        if isinstance(box_region[i], np.ndarray):
+            print('check')
+        
+        x1,y1,x2,y2 = box_region[i]
+        rect = Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=1, edgecolor='r', facecolor='none')
+        if x2 - x1 == 224:
+            continue
+        image = images[i]
+        image = image.permute(1, 2, 0).cpu().numpy()
+        image = (image * np.array([0.229, 0.224, 0.225])) + np.array([0.485, 0.456, 0.406])
+        image = (image * 255).astype(np.uint8)
+        plt.figure(figsize=(10, 8))
+        plt.imshow(image)
+        # plt.scatter(box_region[:, 0], box_region[:, 1], c='r', marker='o')
+        plt.gca().add_patch(rect)
+        plt.show() 
+
+def return_box_region(facebox, face_prob, imgs):
+    box_region = []
+    for i in range(len(facebox)):
+        if facebox[i] is None :
+            h,w = imgs[i].shape[1], imgs[i].shape[2]
+            default_box = [0,0,h,w]
+            box_region.append(default_box)
+        else:
+            box_region.append(facebox[i][0])
+    return box_region
 
 def load_cropped_images(video_id, frame_list, bboxes, args):
     images_path = os.path.join(args.dataset_root_path, 'frames')
@@ -148,6 +188,10 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
         cropped_img = img_pad(cropped_img, mode='pad_resize')
         cropped_img = np.array(cropped_img)
 
+        pil_transform = transforms.Compose([
+            transforms.ToPILImage(),
+
+         ])
         transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.ToTensor(),
@@ -181,8 +225,9 @@ def load_cropped_images(video_id, frame_list, bboxes, args):
         #     flow_data_name = f"{str(frame_id).zfill(3)}.npy"  # Naming convention: frameID_frameIDNext.npy
         #     flow_data_path = os.path.join(video_flow_dir, flow_data_name)
         #     np.save(flow_data_path, final_flow_img_np)  # Save numpy array
+        cropped_image_list = cropped_images
 
-    return torch.stack(cropped_images)
+    return torch.stack(cropped_images), cropped_image_list
 
 def squarify(bbox, squarify_ratio, img_width):
     width = abs(bbox[0] - bbox[2])
