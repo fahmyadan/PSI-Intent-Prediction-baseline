@@ -132,13 +132,13 @@ class CrossingIntentPredictor(nn.Module):
         super(CrossingIntentPredictor, self).__init__()
         self.observe_length = 15
         image_feature_size = 2048  
-        bbox_feature_size = 64
+        bbox_feature_size = 128
         skeleton_feature_size = 32
         d_model = 32
-        nhead = 4
-        num_layers = 3
+        nhead = 8
+        num_layers = 4
         dim_feedforward = 64
-        flow_map_feature_size = 64
+        flow_map_feature_size = 128
         self.bbox_embedding = nn.Linear(4, bbox_feature_size)
         self.image_feature_extractor = ImageFeatureExtractor()
         self.optical_flow_feature_extractor = OpticalFlowFeatureExtractor(flow_map_feature_size)
@@ -147,7 +147,6 @@ class CrossingIntentPredictor(nn.Module):
         self.copped_skeleton_flow_transformer = TransformerEncoder(skeleton_feature_size + image_feature_size + flow_map_feature_size, d_model, nhead, num_layers, dim_feedforward)
 
         self.joint_attention = FeatureTemporalAttention(d_model * 2)
-        self.batch_norm = nn.BatchNorm1d(d_model * 2) 
         self.fc = nn.Sequential(
             nn.Linear(d_model * 2, 16),
             nn.ReLU(),
@@ -177,13 +176,13 @@ class CrossingIntentPredictor(nn.Module):
                                     whole_image_features], dim=2)
         context_vectors = self.joint_attention(combined_features)
         context_vectors = context_vectors[:,-1,:]
-        output = self.fc(self.batch_norm(context_vectors))
+        output = self.fc(context_vectors)
 
         return output.squeeze()
 
     def build_optimizer(self):
         backbone_lr = 1e-4
-        transformer_lr = 2e-3
+        transformer_lr = 1e-3
 
         backbone_parameters = list(self.image_feature_extractor.resnet.parameters())
         backbone_param_ids = {id(p): True for p in backbone_parameters}

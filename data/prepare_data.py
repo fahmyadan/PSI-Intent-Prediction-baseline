@@ -39,7 +39,7 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
     val_dataset = VideoDataset(val_d, args, stage='val')
     test_dataset = VideoDataset(test_d, args, stage='test')
     # Create a WeightedRandomSampler
-    portion = 1/5
+    portion = 1/3
     num_samples = int(len(train_dataset) * portion)
 
     sampler = WeightedRandomSampler([1.35682197] * len(train_dataset), num_samples, replacement=False)

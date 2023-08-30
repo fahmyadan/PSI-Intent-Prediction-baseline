@@ -104,14 +104,14 @@ class VideoDataset(torch.utils.data.Dataset):
         # You can add more video-specific transformations as needed
         if self.stage == 'train':
             video_transform_list = [
-                video_transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+                video_transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
                 volume_transforms.ClipToTensor(),
                 video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
                         std=[0.229, 0.224, 0.225])
             ]
             self.transform = video_transforms.Compose(video_transform_list)
             cropped_video_transform_list = [
-                video_transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+                video_transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1),
                 volume_transforms.ClipToTensor(),
                 video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
                         std=[0.229, 0.224, 0.225])
