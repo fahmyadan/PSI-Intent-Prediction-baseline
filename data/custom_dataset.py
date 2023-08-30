@@ -76,7 +76,7 @@ class VideoDataset(torch.utils.data.Dataset):
             cropped_flow = Image.fromarray(flowmap).crop(bbox)
             cropped_flow = np.array(cropped_flow)
             cropped_flow = self.img_pad(cropped_flow, mode='pad_resize', size=224, type='flow') # return PIL.image type
-            cropped_flow = np.array(cropped_flow)
+
             images.append(Image.fromarray(img))
             cropped_images.append(cropped_img)
             cropped_flows.append(cropped_flow) 
@@ -85,12 +85,14 @@ class VideoDataset(torch.utils.data.Dataset):
 
         if self.stage == 'train':
             images, bboxes_output = apply_random_resize(images, bboxes_output, (1.2,1))
-            images, bboxes_output = apply_random_crop(images, bboxes_output, (224,224))
+            images, bboxes_output = apply_random_crop(images, bboxes_output, (224,398))
 
         augmented_video_frames = self.transform(images)
         augmented_cropped_video_frames = self.cropped_transform(cropped_images)
-
-        return augmented_video_frames , augmented_cropped_video_frames, np.stack(cropped_flows, axis=0), bboxes_output # Time x Channel x H x W
+        cropped_flows = volume_transforms.ClipToTensor()(cropped_flows)
+        cropped_flows = video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225])(cropped_flows)
+        return augmented_video_frames , augmented_cropped_video_frames, cropped_flows, bboxes_output # Time x Channel x H x W
 
 
     def rgb_loader(self, img_path):
@@ -118,7 +120,6 @@ class VideoDataset(torch.utils.data.Dataset):
         else:
             # For validation/testing, you might want to have deterministic transformations
             video_transform_list = [
-                video_transforms.CenterCrop((224, 224)),
                 volume_transforms.ClipToTensor(),
                 video_transforms.Normalize(mean=[0.485, 0.456, 0.406],
                         std=[0.229, 0.224, 0.225])

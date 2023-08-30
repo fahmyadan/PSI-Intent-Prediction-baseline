@@ -66,7 +66,7 @@ def train_intent_epoch(epoch, model, optimizer, criterions, epoch_loss, dataload
 
         loss_intent = torch.mean(torch.mul(gt_consensus, loss_intent))
         
-        loss = loss_intent + loss_edl*0.1
+        loss = loss_intent + loss_edl*0.01
         loss.backward()
         optimizer.step()
 

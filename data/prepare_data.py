@@ -44,13 +44,11 @@ def get_dataloader(args, shuffle_train=True, drop_last_train=True):
 
     sampler = WeightedRandomSampler([1.35682197] * len(train_dataset), num_samples, replacement=False)
 
-
-    # Use the sampler in your DataLoader
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, # Set shuffle to False
                                             sampler=sampler, pin_memory=True, drop_last=drop_last_train, num_workers=4)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=8, shuffle=False,
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=6, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=8, shuffle=False,
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=6, shuffle=False,
                                               pin_memory=True, sampler=None, drop_last=False, num_workers=4)
     return train_loader, val_loader, test_loader
 
